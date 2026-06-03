@@ -289,7 +289,7 @@ describe('cheating enabled', () => {
   });
 
   describe('cheatNoticeScope=defender_only, beat-cheat', () => {
-    it('nobody (including the attacker) can notice a beat-cheat in defender_only scope', () => {
+    it('anyone except the defender can notice a beat-cheat regardless of scope', () => {
       const state = craftGame({
         players: [
           { id: 'A', hand: [card('hearts', 10)] },
@@ -316,29 +316,60 @@ describe('cheating enabled', () => {
         defenseCardId: 'hearts-6',
       });
       if (!r2.ok) throw new Error();
-      // Attacker A is denied (would have been allowed under the old rule).
-      const rA = applyCommand(r2.state, {
-        type: 'notice_cheat',
-        playerId: 'A',
-        attackEntryId: r2.state.table.attacks[0].id,
-      });
-      expect(rA.ok).toBe(false);
-      if (!rA.ok) expect(rA.code).toBe('NOT_YOUR_TURN');
-      // Third party C is also denied.
-      const rC = applyCommand(r2.state, {
-        type: 'notice_cheat',
-        playerId: 'C',
-        attackEntryId: r2.state.table.attacks[0].id,
-      });
-      expect(rC.ok).toBe(false);
-      if (!rC.ok) expect(rC.code).toBe('NOT_YOUR_TURN');
-      // Defender B obviously cannot notice their own beat.
+      // Defender B obviously cannot notice their own bad beat.
       const rB = applyCommand(r2.state, {
         type: 'notice_cheat',
         playerId: 'B',
         attackEntryId: r2.state.table.attacks[0].id,
       });
       expect(rB.ok).toBe(false);
+      // Third party C catches the bad beat — scope doesn't gate beat-cheats.
+      const rC = applyCommand(r2.state, {
+        type: 'notice_cheat',
+        playerId: 'C',
+        attackEntryId: r2.state.table.attacks[0].id,
+      });
+      expect(rC.ok).toBe(true);
+      if (!rC.ok) return;
+      const eventC = rC.events.find((e) => e.type === 'CheatNoticed');
+      expect(eventC).toMatchObject({ succeeded: true, noticerId: 'C', cheaterId: 'B' });
+    });
+
+    it('attacker can also notice a beat-cheat under defender_only scope', () => {
+      const state = craftGame({
+        players: [
+          { id: 'A', hand: [card('hearts', 10)] },
+          { id: 'B', hand: [card('hearts', 6), card('clubs', 7)] },
+          { id: 'C', hand: [card('clubs', 9), card('clubs', 10)] },
+        ],
+        attackerId: 'A',
+        defenderId: 'B',
+        trumpSuit: 'spades',
+        settings: {
+          cheatingEnabled: true,
+          cheatAttempts: 1,
+          cheatNoticeScope: 'defender_only',
+          attackerScope: 'all',
+        },
+      });
+      const r1 = applyCommand(state, { type: 'attack', playerId: 'A', cardId: 'hearts-10' });
+      if (!r1.ok) throw new Error();
+      const r2 = applyCommand(r1.state, {
+        type: 'beat',
+        playerId: 'B',
+        attackEntryId: r1.state.table.attacks[0].id,
+        defenseCardId: 'hearts-6',
+      });
+      if (!r2.ok) throw new Error();
+      const rA = applyCommand(r2.state, {
+        type: 'notice_cheat',
+        playerId: 'A',
+        attackEntryId: r2.state.table.attacks[0].id,
+      });
+      expect(rA.ok).toBe(true);
+      if (!rA.ok) return;
+      const event = rA.events.find((e) => e.type === 'CheatNoticed');
+      expect(event).toMatchObject({ succeeded: true, noticerId: 'A', cheaterId: 'B' });
     });
   });
 

@@ -200,12 +200,13 @@ describe('DefaultCheatPolicy', () => {
     expect(policy.canNotice(game, attackerId, attackerId, false)).toBe(false);
   });
 
-  it('defender_only: nobody may notice beat cheats (defender would self-incriminate)', () => {
+  it('defender_only: anyone except the defender may notice beat cheats (scope only gates attack-cheats)', () => {
     const policy = new DefaultCheatPolicy();
-    // Beat-cheat: cheater is the defender. Per spec, in defender_only scope
-    // nobody is on the receiving side except the defender themselves.
-    expect(policy.canNotice(game, attackerId, defenderId, true)).toBe(false);
-    expect(policy.canNotice(game, other.id, defenderId, true)).toBe(false);
+    // Beat-cheat: cheater is the defender. Per spec, `cheatNoticeScope` only
+    // constrains attacker cheats; beat-cheats are catchable by everyone except
+    // the defender themselves.
+    expect(policy.canNotice(game, attackerId, defenderId, true)).toBe(true);
+    expect(policy.canNotice(game, other.id, defenderId, true)).toBe(true);
     expect(policy.canNotice(game, defenderId, defenderId, true)).toBe(false);
   });
 

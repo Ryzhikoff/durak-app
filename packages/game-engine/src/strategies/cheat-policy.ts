@@ -3,14 +3,14 @@
  * against beat/rank rules — any card in the player's hand may be played. The
  * cheat is "caught" only when another player issues `notice_cheat`.
  *
- * Notice scope:
- *  - `defender_only` — only the player on the receiving side of the suspected
- *    illegal action may notice it. For attack-cheats that is the current
- *    defender (they are the one being thrown extra cards at). For beat-cheats
- *    that is nobody — the defender obviously won't catch their own bad beat,
- *    and only the defender is on the "receiving side" of a beat in the
- *    duel-style scope.
- *  - `all`           — any non-cheater non-finished player may notice.
+ * `cheatNoticeScope` ONLY constrains who can catch an **attacker** cheating:
+ *  - `defender_only` — only the current defender may notice an illegal attack.
+ *  - `all`           — any non-attacker non-finished player may notice it.
+ *
+ * Beat-cheats (the defender plays a card that doesn't beat) are ALWAYS
+ * catchable by anyone except the defender themselves, regardless of
+ * `cheatNoticeScope`. The defender alone benefits from a successful bad beat,
+ * so every other live player is on the "receiving side" and may call it.
  */
 
 import type { LobbySettings } from '@durak/shared-types';
@@ -46,14 +46,13 @@ export class DefaultCheatPolicy implements ICheatPolicy {
     if (noticerId === cheaterId) return false;
     if (state.finishedPlayers.includes(noticerId)) return false;
 
+    // Beat-cheats: the defender benefits from a bad beat, everyone else is
+    // on the receiving side. `cheatNoticeScope` only governs attack-cheats.
+    if (isBeatBeingChecked) return true;
+
     const scope: LobbySettings['cheatNoticeScope'] = state.settings.cheatNoticeScope;
     if (scope === 'all') return true;
-    // defender_only:
-    //   * illegal attack -> only the defender may notice (they are the
-    //     receiving side of the throw);
-    //   * illegal beat   -> nobody may notice (defender would be accusing
-    //     themselves; everybody else is out of scope).
-    if (isBeatBeingChecked) return false;
+    // defender_only: only the current defender catches illegal attacks.
     const defenderId = state.players[state.currentDefenderIndex].id;
     return noticerId === defenderId;
   }
