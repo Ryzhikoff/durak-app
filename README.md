@@ -126,7 +126,29 @@ pnpm --filter @durak/web test
 pnpm --filter @durak/web lint
 ```
 
-## Phase 2+
+## Phase 2 — Lobby scaffolding (backend)
 
-Lobby, WebSocket gateway, game engine, TrueSkill rating, avatar upload,
-card-back UI — all coming next.
+New endpoints (all under `/api`):
+
+- `GET /card-backs` — public catalog of card-back definitions (metadata only;
+  rendering is done on the frontend via CSS/SVG).
+- `GET /rating?page=&limit=` — public leaderboard sorted by conservative
+  TrueSkill (`mu - 3*sigma`, desc).
+- `GET /users/:id/profile` — public profile (rating, stats stub, card-back
+  preferences). 404 for disabled users.
+- `GET /games?page=&limit=&playerId=` — stub list, always empty until the
+  game engine ships in Phase 4.
+- `GET /games/:id` — always 404 (`GAME_NOT_FOUND`) for now.
+- `POST /me/avatar` (auth) — multipart `file` (JPEG/PNG/WEBP, ≤5 MB),
+  resized to 256×256 WEBP via `sharp` and stored on the `api_uploads` volume.
+- `DELETE /me/avatar` (auth) — deletes the avatar file and clears
+  `avatarUrl`.
+
+Static avatars are served by nginx from the same `api_uploads` volume
+(mounted read-only) under `/uploads/` with a 1-hour Cache-Control. The API
+appends a `?v=<timestamp>` cache-buster to `avatarUrl` after each upload.
+
+## Phase 3+
+
+Lobby, WebSocket gateway, game engine, TrueSkill rating progression — all
+coming next.

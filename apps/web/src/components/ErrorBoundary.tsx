@@ -1,4 +1,5 @@
 import { Component, ErrorInfo, ReactNode } from 'react';
+import i18n from '@/lib/i18n';
 
 interface Props {
   children: ReactNode;
@@ -12,6 +13,9 @@ interface State {
 /**
  * Top-level error boundary. Catches render-time errors in the React subtree
  * and renders a minimal fallback so the user doesn't see a blank page.
+ *
+ * Class components can't use `useTranslation`, so we read strings directly from
+ * the singleton i18n instance. Keys live under `errors.boundary.*` in ru.json.
  */
 export class ErrorBoundary extends Component<Props, State> {
   state: State = { hasError: false };
@@ -39,16 +43,14 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <div className="flex min-h-screen items-center justify-center px-4">
         <div className="w-full max-w-md rounded-2xl border border-border bg-surface p-6 text-center shadow-xl">
-          <h1 className="mb-2 text-xl font-semibold">Что-то пошло не так</h1>
-          <p className="mb-4 text-sm text-textMuted">
-            Произошла непредвиденная ошибка. Перезагрузите страницу.
-          </p>
+          <h1 className="mb-2 text-xl font-semibold">{i18n.t('errors.boundary.title')}</h1>
+          <p className="mb-4 text-sm text-textMuted">{i18n.t('errors.boundary.description')}</p>
           <button
             type="button"
             onClick={this.handleReload}
             className="inline-flex h-11 items-center justify-center rounded-xl bg-accent px-4 text-base font-medium text-accentText hover:bg-accentHover"
           >
-            Перезагрузить
+            {i18n.t('errors.boundary.reload')}
           </button>
         </div>
       </div>

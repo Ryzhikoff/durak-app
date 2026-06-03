@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { validateEnv } from './config/env.validation';
+import { UploadsModule } from './common/uploads/uploads.module';
 import { PrismaModule } from './infrastructure/prisma/prisma.module';
 import { RedisModule } from './infrastructure/redis/redis.module';
 import { HealthModule } from './modules/health/health.module';
@@ -10,6 +11,10 @@ import { AuthModule } from './modules/auth/auth.module';
 import { AdminSetupModule } from './modules/admin-setup/admin-setup.module';
 import { AdminUsersModule } from './modules/admin-users/admin-users.module';
 import { MeModule } from './modules/me/me.module';
+import { CardBacksModule } from './modules/card-backs/card-backs.module';
+import { RatingModule } from './modules/rating/rating.module';
+import { ProfileModule } from './modules/profile/profile.module';
+import { GamesModule } from './modules/games/games.module';
 
 @Module({
   imports: [
@@ -46,12 +51,17 @@ import { MeModule } from './modules/me/me.module';
       },
     ]),
     PrismaModule,
+    UploadsModule,
     RedisModule,
     HealthModule,
     AuthModule,
     AdminSetupModule,
     AdminUsersModule,
     MeModule,
+    CardBacksModule,
+    RatingModule,
+    ProfileModule,
+    GamesModule,
   ],
 })
 export class AppModule {}

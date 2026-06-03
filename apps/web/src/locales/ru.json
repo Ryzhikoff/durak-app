@@ -7,7 +7,8 @@
     "home": "Главная",
     "admin": "Админка",
     "profile": "Профиль",
-    "logout": "Выйти"
+    "logout": "Выйти",
+    "menuToggle": "Меню"
   },
   "auth": {
     "loginTitle": "Вход",
@@ -42,17 +43,84 @@
     "loginHelp": "Только латиница, цифры, точка, дефис, подчёркивание"
   },
   "home": {
-    "title": "Главная",
-    "phaseStub": "Главная появится на этапе 2: лобби, рейтинг, история игр.",
+    "title": "Рейтинг",
+    "subtitle": "Лучшие игроки по консервативному рейтингу TrueSkill.",
+    "ratingTitle": "Рейтинг игроков",
+    "lastGamesTitle": "Последние игры",
+    "ratingEmpty": "Пока никто не играл",
+    "lastGamesEmpty": "Игр ещё нет",
+    "openProfile": "Мой профиль",
+    "table": {
+      "place": "#",
+      "player": "Игрок",
+      "rating": "Рейтинг",
+      "games": "Игры"
+    },
+    "page": "Страница {{page}} из {{total}}",
+    "prev": "Назад",
+    "next": "Вперёд",
     "greeting": "Привет, {{nickname}}!"
   },
   "profile": {
     "title": "Профиль",
+    "adminBadge": "Админ",
+    "ratingLabel": "Рейтинг",
+    "statsTitle": "Статистика",
+    "statsEmpty": "Статистика появится после первых игр",
+    "stats": {
+      "gamesPlayed": "Игр сыграно",
+      "wins": "Победы",
+      "lastPlaces": "Последние места",
+      "firstPlaceRate": "Доля первых мест",
+      "lastPlaceRate": "Доля последних мест",
+      "cheatAttempts": "Попыток смухлевать",
+      "cheatCaught": "Поймал на мухляже"
+    },
+    "lastGamesTitle": "Последние игры",
+    "lastGamesEmpty": "Игр ещё нет",
+    "settingsTitle": "Настройки профиля",
+    "avatarTitle": "Аватар",
+    "avatarUpload": "Загрузить",
+    "avatarDelete": "Удалить",
+    "avatarUploading": "Загружаем...",
+    "avatarDeleting": "Удаляем...",
+    "cardBackTitle": "Рубашка карт",
+    "cardBackRandom": "Случайная каждую игру",
+    "cardBackRandomHint": "Перед каждой партией будет выбираться случайная рубашка из этого набора.",
+    "cardBackSaving": "Сохраняем...",
+    "cardBackCurrent": "Текущая",
+    "cardBackCurrentRandom": "Случайная каждую игру",
+    "cardBack": {
+      "custom": {
+        "title": "Своя рубашка",
+        "uploadPrompt": "Загрузить изображение",
+        "uploadHint": "JPG, PNG, WebP, до 5 МБ",
+        "select": "Выбрать",
+        "selected": "Выбрана",
+        "replace": "Заменить",
+        "delete": "Удалить",
+        "deleteConfirmTitle": "Удалить свою рубашку?",
+        "deleteConfirmBody": "Если она сейчас выбрана, мы вернём вас на классическую.",
+        "deleteConfirmConfirm": "Удалить",
+        "deleteConfirmCancel": "Отмена"
+      }
+    },
     "nickname": "Никнейм",
     "save": "Сохранить",
     "saving": "Сохраняем...",
     "saved": "Сохранено",
-    "changePasswordLink": "Сменить пароль"
+    "changePasswordLink": "Сменить пароль",
+    "notFound": "Профиль не найден",
+    "backToHome": "На главную"
+  },
+  "game": {
+    "title": "Игра",
+    "notFoundTitle": "Игра не найдена",
+    "notFoundDescription": "Партия с таким идентификатором не существует или ещё недоступна.",
+    "backToHome": "На главную",
+    "playersTitle": "Игроки",
+    "startedAt": "Начало",
+    "endedAt": "Конец"
   },
   "admin": {
     "usersTitle": "Игроки",
@@ -141,6 +209,17 @@
     "NOT_FOUND": "Не найдено",
     "BAD_REQUEST": "Некорректный запрос",
     "INTERNAL_ERROR": "Внутренняя ошибка сервера",
-    "generic": "Что-то пошло не так"
+    "GAME_NOT_FOUND": "Игра не найдена",
+    "CARD_BACK_NOT_FOUND": "Такая рубашка не найдена",
+    "CUSTOM_CARD_BACK_NOT_SET": "Сначала загрузите свою рубашку",
+    "AVATAR_TOO_LARGE": "Файл слишком большой. Максимум 5 МБ.",
+    "AVATAR_INVALID_TYPE": "Неподдерживаемый формат. Используйте JPEG, PNG или WebP.",
+    "INVALID_FILE": "Не удалось загрузить файл",
+    "generic": "Что-то пошло не так",
+    "boundary": {
+      "title": "Что-то пошло не так",
+      "description": "Произошла непредвиденная ошибка. Перезагрузите страницу.",
+      "reload": "Перезагрузить"
+    }
   }
 }

@@ -17,6 +17,7 @@ export interface PublicUser {
   avatarUrl: string | null;
   cardBackId: string;
   randomCardBack: boolean;
+  customCardBackUrl: string | null;
 }
 
 @Injectable()
@@ -36,6 +37,7 @@ export class AuthService {
     avatarUrl: string | null;
     cardBackId: string;
     randomCardBack: boolean;
+    customCardBackUrl: string | null;
   }): PublicUser {
     return {
       id: u.id,
@@ -46,6 +48,7 @@ export class AuthService {
       avatarUrl: u.avatarUrl,
       cardBackId: u.cardBackId,
       randomCardBack: u.randomCardBack,
+      customCardBackUrl: u.customCardBackUrl,
     };
   }
 

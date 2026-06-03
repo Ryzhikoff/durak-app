@@ -14,6 +14,7 @@ interface FakeUser {
   avatarUrl: string | null;
   cardBackId: string;
   randomCardBack: boolean;
+  customCardBackUrl: string | null;
   disabledAt: Date | null;
 }
 
@@ -27,6 +28,7 @@ const baseUser: FakeUser = {
   avatarUrl: null,
   cardBackId: 'classic-1',
   randomCardBack: false,
+  customCardBackUrl: null,
   disabledAt: null,
 };
 

@@ -22,6 +22,7 @@ model User {
   avatarUrl          String?
   cardBackId         String   @default("classic-1")
   randomCardBack     Boolean  @default(false)
+  customCardBackUrl  String?
   trueskillMu        Float    @default(25.0)
   trueskillSigma     Float    @default(8.333333)
   createdAt          DateTime @default(now())

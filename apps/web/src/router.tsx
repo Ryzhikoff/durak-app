@@ -5,7 +5,8 @@ import { ChangePasswordPage } from '@/features/auth/ChangePasswordPage';
 import { AdminSetupPage } from '@/features/admin-setup/AdminSetupPage';
 import { AdminUsersPage } from '@/features/admin/AdminUsersPage';
 import { ProfilePage } from '@/features/profile/ProfilePage';
-import { HomePage } from '@/features/home/HomePage';
+import { RatingPage } from '@/features/rating/RatingPage';
+import { GamePage } from '@/features/games/GamePage';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { AppShell } from '@/components/layout/AppShell';
 import { registerUnauthorizedHandler } from '@/lib/api';
@@ -46,8 +47,10 @@ export function AppRouter() {
           </ProtectedRoute>
         }
       >
-        <Route path="/" element={<HomePage />} />
-        <Route path="/profile" element={<ProfilePage />} />
+        <Route path="/" element={<RatingPage />} />
+        <Route path="/u/:id" element={<ProfilePage />} />
+        <Route path="/profile" element={<MyProfileRedirect />} />
+        <Route path="/games/:id" element={<GamePage />} />
         <Route
           path="/admin"
           element={
@@ -61,4 +64,14 @@ export function AppRouter() {
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
+}
+
+/**
+ * Compatibility redirect: legacy `/profile` route now points to the public
+ * profile of the current user.
+ */
+function MyProfileRedirect() {
+  const me = useAuthStore((s) => s.user);
+  if (!me) return <Navigate to="/login" replace />;
+  return <Navigate to={`/u/${me.id}`} replace />;
 }

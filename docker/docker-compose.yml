@@ -81,6 +81,7 @@ services:
       - "${HTTP_PORT:-80}:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - api_uploads:/var/www/uploads:ro
     depends_on:
       api:
         condition: service_healthy

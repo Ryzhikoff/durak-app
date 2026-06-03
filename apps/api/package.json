@@ -17,6 +17,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@durak/shared-types": "workspace:*",
     "@fastify/cookie": "9.3.1",
     "@fastify/helmet": "11.1.1",
     "@fastify/multipart": "8.3.0",
@@ -38,6 +39,7 @@
     "prisma": "5.22.0",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.1",
+    "sharp": "0.33.5",
     "zod": "3.23.8"
   },
   "devDependencies": {
