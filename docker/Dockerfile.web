@@ -1,0 +1,63 @@
+# syntax=docker/dockerfile:1.7
+#
+# Web frontend image (production).
+#
+# Stage 1: install dependencies for the whole workspace (cacheable layer).
+# Stage 2: build the Vite app.
+# Stage 3: serve the static bundle with `serve` on :5173 so nginx upstream
+#          `web:5173` keeps working both for dev (Vite dev server) and prod.
+
+############################
+# Stage 1: deps
+############################
+FROM node:20-alpine AS deps
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN apk add --no-cache libc6-compat
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+
+WORKDIR /repo
+
+# Workspace manifests first for better cache behavior.
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
+COPY tsconfig.base.json ./
+COPY apps/web/package.json ./apps/web/
+COPY apps/api/package.json ./apps/api/
+COPY packages/shared-types/package.json* ./packages/shared-types/
+COPY packages/game-engine/package.json* ./packages/game-engine/
+
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile || pnpm install
+
+############################
+# Stage 2: builder
+############################
+FROM node:20-alpine AS builder
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+
+WORKDIR /repo
+COPY --from=deps /repo /repo
+
+# Source.
+COPY tsconfig.base.json ./
+COPY packages ./packages
+COPY apps/web ./apps/web
+
+WORKDIR /repo/apps/web
+RUN pnpm build
+
+############################
+# Stage 3: runtime — serve static dist on :5173
+############################
+FROM node:20-alpine AS runtime
+ENV NODE_ENV=production
+WORKDIR /app
+
+RUN npm install -g --no-audit --no-fund serve@14
+
+COPY --from=builder /repo/apps/web/dist /app/dist
+
+EXPOSE 5173
+CMD ["serve", "-s", "/app/dist", "-l", "5173"]

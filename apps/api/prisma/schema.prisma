@@ -1,0 +1,74 @@
+// Prisma schema for Durak app (Phase 1: auth + admin).
+// Game-related models will be added in later phases. The trueskill fields
+// on User are kept here per brief (foundation for future rating).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String   @id @default(cuid())
+  /// Stored lowercased. Use case-insensitive comparison via lowercasing on app layer.
+  login              String   @unique
+  passwordHash       String
+  nickname           String   @unique
+  isAdmin            Boolean  @default(false)
+  mustChangePassword Boolean  @default(false)
+  avatarUrl          String?
+  cardBackId         String   @default("classic-1")
+  randomCardBack     Boolean  @default(false)
+  trueskillMu        Float    @default(25.0)
+  trueskillSigma     Float    @default(8.333333)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  disabledAt         DateTime?
+
+  sessions       Session[]
+  ratingHistory  RatingHistory[]
+
+  @@index([disabledAt])
+}
+
+model Session {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  userAgent String?
+  ip        String?
+
+  @@index([userId])
+}
+
+model RatingHistory {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// FK to Game; left as plain string for now since Game model is added in later phase.
+  gameId        String?
+  muBefore      Float
+  sigmaBefore   Float
+  muAfter       Float
+  sigmaAfter    Float
+  /// Display-friendly delta (e.g. conservative rating delta).
+  deltaDisplay  Float
+  createdAt     DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+/// Placeholder for admin-editable game presets (filled in later phases).
+model GameSettingsTemplate {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  /// Raw JSON config; structure decided when game module ships.
+  config    Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

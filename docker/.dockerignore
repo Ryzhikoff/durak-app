@@ -1,0 +1,15 @@
+**/node_modules
+**/dist
+**/build
+**/.next
+**/.vite
+**/coverage
+**/.cache
+**/.turbo
+**/*.tsbuildinfo
+**/.env
+**/.env.*
+**/.git
+**/.DS_Store
+**/.vscode
+**/.idea

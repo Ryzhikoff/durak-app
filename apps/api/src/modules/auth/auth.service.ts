@@ -1,0 +1,145 @@
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { PasswordHasher } from './password-hasher';
+import { SessionService } from './session.service';
+
+export interface PublicUser {
+  id: string;
+  login: string;
+  nickname: string;
+  isAdmin: boolean;
+  mustChangePassword: boolean;
+  avatarUrl: string | null;
+  cardBackId: string;
+  randomCardBack: boolean;
+}
+
+@Injectable()
+export class AuthService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly hasher: PasswordHasher,
+    private readonly sessions: SessionService,
+  ) {}
+
+  toPublicUser(u: {
+    id: string;
+    login: string;
+    nickname: string;
+    isAdmin: boolean;
+    mustChangePassword: boolean;
+    avatarUrl: string | null;
+    cardBackId: string;
+    randomCardBack: boolean;
+  }): PublicUser {
+    return {
+      id: u.id,
+      login: u.login,
+      nickname: u.nickname,
+      isAdmin: u.isAdmin,
+      mustChangePassword: u.mustChangePassword,
+      avatarUrl: u.avatarUrl,
+      cardBackId: u.cardBackId,
+      randomCardBack: u.randomCardBack,
+    };
+  }
+
+  async login(
+    rawLogin: string,
+    password: string,
+    meta: { userAgent?: string; ip?: string },
+  ): Promise<{ user: PublicUser; sessionId: string; ttlSeconds: number }> {
+    const login = rawLogin.trim().toLowerCase();
+    const user = await this.prisma.user.findUnique({ where: { login } });
+    if (!user) {
+      // Constant-ish-time path: still run a verify against a dummy hash to avoid
+      // user-enumeration timing differences. Cheap because argon2 dominates.
+      await this.hasher
+        .verify(
+          '$argon2id$v=19$m=65536,t=3,p=1$ZHVtbXlzYWx0ZHVtbXlzYWx0$dummydummydummydummydummydummydummydummydummy',
+          password,
+        )
+        .catch(() => false);
+      throw new UnauthorizedException({
+        code: 'INVALID_CREDENTIALS',
+        message: 'Invalid login or password',
+      });
+    }
+    if (user.disabledAt) {
+      throw new ForbiddenException({ code: 'ACCOUNT_DISABLED', message: 'Account disabled' });
+    }
+    const ok = await this.hasher.verify(user.passwordHash, password);
+    if (!ok) {
+      throw new UnauthorizedException({
+        code: 'INVALID_CREDENTIALS',
+        message: 'Invalid login or password',
+      });
+    }
+    const { id: sessionId, ttlSeconds } = await this.sessions.create({
+      userId: user.id,
+      isAdmin: user.isAdmin,
+      mustChangePassword: user.mustChangePassword,
+      userAgent: meta.userAgent,
+      ip: meta.ip,
+    });
+    return { user: this.toPublicUser(user), sessionId, ttlSeconds };
+  }
+
+  async logout(sessionId: string | undefined): Promise<void> {
+    if (!sessionId) return;
+    await this.sessions.destroy(sessionId);
+  }
+
+  async getMe(userId: string): Promise<PublicUser> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'Session invalid' });
+    }
+    if (user.disabledAt) {
+      throw new ForbiddenException({ code: 'ACCOUNT_DISABLED', message: 'Account disabled' });
+    }
+    return this.toPublicUser(user);
+  }
+
+  async changePassword(
+    userId: string,
+    sessionId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<PublicUser> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new UnauthorizedException({ code: 'UNAUTHORIZED', message: 'Session invalid' });
+    }
+    // mustChangePassword still requires the user to type their current password
+    // (admin-issued one). This is consistent and avoids accidental skip.
+    const ok = await this.hasher.verify(user.passwordHash, currentPassword);
+    if (!ok) {
+      throw new BadRequestException({
+        code: 'INVALID_CURRENT_PASSWORD',
+        message: 'Current password is incorrect',
+      });
+    }
+    if (currentPassword === newPassword) {
+      throw new BadRequestException({
+        code: 'NEW_PASSWORD_SAME_AS_CURRENT',
+        message: 'New password must differ from current',
+      });
+    }
+    const newHash = await this.hasher.hash(newPassword);
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: newHash, mustChangePassword: false },
+    });
+    await this.sessions.update(sessionId, { mustChangePassword: false });
+    // Invalidate all OTHER sessions of this user — the current session stays valid
+    // so the user remains logged in after password change.
+    await this.sessions.destroyAllForUserExcept(userId, sessionId);
+    return this.toPublicUser(updated);
+  }
+}

@@ -1,0 +1,146 @@
+{
+  "app": {
+    "title": "Дурак",
+    "loading": "Загрузка..."
+  },
+  "nav": {
+    "home": "Главная",
+    "admin": "Админка",
+    "profile": "Профиль",
+    "logout": "Выйти"
+  },
+  "auth": {
+    "loginTitle": "Вход",
+    "loginSubtitle": "Войдите, чтобы продолжить",
+    "loginField": "Логин",
+    "passwordField": "Пароль",
+    "loginButton": "Войти",
+    "loggingIn": "Входим...",
+    "logoutSuccess": "Вы вышли"
+  },
+  "changePassword": {
+    "title": "Смена пароля",
+    "forcedSubtitle": "Администратор требует сменить пароль перед продолжением.",
+    "normalSubtitle": "Задайте новый пароль для своей учётной записи.",
+    "currentPassword": "Текущий пароль",
+    "newPassword": "Новый пароль",
+    "confirmPassword": "Повтор нового пароля",
+    "submit": "Сменить пароль",
+    "submitting": "Сохраняем...",
+    "mismatch": "Пароли не совпадают",
+    "tooShort": "Минимум 6 символов",
+    "success": "Пароль обновлён"
+  },
+  "adminSetup": {
+    "title": "Создание администратора",
+    "subtitle": "Это окно открыто только при первой настройке системы.",
+    "loginField": "Логин",
+    "passwordField": "Пароль",
+    "nicknameField": "Никнейм (необязательно)",
+    "submit": "Создать администратора",
+    "submitting": "Создаём...",
+    "loginHelp": "Только латиница, цифры, точка, дефис, подчёркивание"
+  },
+  "home": {
+    "title": "Главная",
+    "phaseStub": "Главная появится на этапе 2: лобби, рейтинг, история игр.",
+    "greeting": "Привет, {{nickname}}!"
+  },
+  "profile": {
+    "title": "Профиль",
+    "nickname": "Никнейм",
+    "save": "Сохранить",
+    "saving": "Сохраняем...",
+    "saved": "Сохранено",
+    "changePasswordLink": "Сменить пароль"
+  },
+  "admin": {
+    "usersTitle": "Игроки",
+    "searchPlaceholder": "Поиск по логину или никнейму",
+    "createUser": "Создать игрока",
+    "table": {
+      "login": "Логин",
+      "nickname": "Никнейм",
+      "isAdmin": "Админ",
+      "status": "Статус",
+      "createdAt": "Создан",
+      "actions": "Действия"
+    },
+    "status": {
+      "active": "Активен",
+      "disabled": "Отключён"
+    },
+    "actions": {
+      "resetPassword": "Сбросить пароль",
+      "makeAdmin": "Сделать админом",
+      "revokeAdmin": "Снять админа",
+      "disable": "Отключить",
+      "enable": "Восстановить",
+      "delete": "Удалить навсегда"
+    },
+    "deleteModal": {
+      "title": "Удалить игрока",
+      "description": "Игрок {{nickname}} будет удалён навсегда. Это действие нельзя отменить.",
+      "confirm": "Удалить",
+      "submitting": "Удаляем..."
+    },
+    "copyCredentials": "Логин: {{login}}\nПароль: {{password}}",
+    "empty": "Игроки не найдены",
+    "page": "Страница {{page}} из {{total}}",
+    "prev": "Назад",
+    "next": "Вперёд",
+    "createModal": {
+      "title": "Новый игрок",
+      "login": "Логин",
+      "password": "Пароль",
+      "generate": "Сгенерировать",
+      "nickname": "Никнейм (необязательно)",
+      "isAdmin": "Назначить администратором",
+      "submit": "Создать",
+      "submitting": "Создаём..."
+    },
+    "createdModal": {
+      "title": "Игрок создан",
+      "description": "Передайте эти данные пользователю. Пароль больше не будет показан.",
+      "login": "Логин",
+      "password": "Пароль",
+      "copy": "Скопировать",
+      "copied": "Скопировано",
+      "close": "Готово"
+    },
+    "resetModal": {
+      "title": "Сброс пароля",
+      "description": "Введите новый пароль или сгенерируйте случайный.",
+      "newPassword": "Новый пароль",
+      "submit": "Сбросить",
+      "submitting": "Сбрасываем...",
+      "successTitle": "Пароль сброшен",
+      "successDescription": "Передайте пользователю новые данные."
+    }
+  },
+  "common": {
+    "cancel": "Отмена",
+    "save": "Сохранить",
+    "ok": "Ок",
+    "back": "Назад",
+    "error": "Ошибка"
+  },
+  "errors": {
+    "INVALID_CREDENTIALS": "Неверный логин или пароль",
+    "INVALID_CURRENT_PASSWORD": "Неверный текущий пароль",
+    "NEW_PASSWORD_SAME_AS_CURRENT": "Новый пароль должен отличаться от текущего",
+    "ACCOUNT_DISABLED": "Учётная запись отключена",
+    "LOGIN_TAKEN": "Логин уже занят",
+    "NICKNAME_TAKEN": "Никнейм уже занят",
+    "USER_NOT_FOUND": "Пользователь не найден",
+    "LAST_ADMIN": "Нельзя удалить последнего администратора",
+    "SELF_DELETE": "Нельзя удалить самого себя",
+    "TOO_MANY_REQUESTS": "Слишком много попыток. Подождите и повторите.",
+    "UNAUTHORIZED": "Требуется авторизация",
+    "FORBIDDEN": "Нет доступа",
+    "NOT_FOUND": "Не найдено",
+    "BAD_REQUEST": "Некорректный запрос",
+    "INTERNAL_ERROR": "Внутренняя ошибка сервера",
+    "generic": "Что-то пошло не так"
+  }
+}

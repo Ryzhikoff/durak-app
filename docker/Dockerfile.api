@@ -1,0 +1,89 @@
+# syntax=docker/dockerfile:1.7
+
+############################
+# Stage 1: deps (full install for builder)
+############################
+FROM node:20-alpine AS deps
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN apk add --no-cache libc6-compat python3 make g++ openssl
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+
+WORKDIR /repo
+
+# Copy lockfile + root manifest + workspace manifest first.
+COPY pnpm-lock.yaml ./
+COPY package.json pnpm-workspace.yaml ./
+COPY tsconfig.base.json ./
+# All workspace package manifests (stable order).
+COPY apps/api/package.json ./apps/api/
+COPY packages/shared-types/package.json ./packages/shared-types/
+COPY packages/game-engine/package.json ./packages/game-engine/
+
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile
+
+############################
+# Stage 2: builder
+############################
+FROM node:20-alpine AS builder
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN apk add --no-cache libc6-compat python3 make g++ openssl
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+
+WORKDIR /repo
+COPY --from=deps /repo /repo
+
+# Now copy source.
+COPY apps/api ./apps/api
+COPY packages ./packages
+COPY tsconfig.base.json ./
+
+WORKDIR /repo/apps/api
+# Generate prisma client BEFORE nest build (Nest imports @prisma/client types).
+RUN pnpm prisma:generate
+RUN pnpm build
+
+############################
+# Stage 3: runtime
+############################
+FROM node:20-alpine AS runtime
+ENV NODE_ENV=production
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN apk add --no-cache openssl tini wget
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+
+WORKDIR /app
+
+# 1) Lockfile + root manifest + workspace manifest.
+COPY pnpm-lock.yaml ./
+COPY package.json pnpm-workspace.yaml ./
+
+# 2) All workspace package manifests (stable order).
+COPY apps/api/package.json ./apps/api/
+COPY packages/shared-types/package.json ./packages/shared-types/
+COPY packages/game-engine/package.json ./packages/game-engine/
+
+# 3) Production install — only what @durak/api needs (with full deps so prisma CLI
+#    is available for `migrate deploy` at startup).
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile --filter @durak/api...
+
+# 4) Copy build artefacts + prisma schema from builder.
+COPY --from=builder /repo/apps/api/dist ./apps/api/dist
+COPY --from=builder /repo/apps/api/prisma ./apps/api/prisma
+
+# 5) Re-generate prisma client so it matches installed @prisma/client in this stage.
+WORKDIR /app/apps/api
+RUN pnpm prisma:generate
+
+# Entrypoint script: runs `prisma migrate deploy` then starts NestJS.
+COPY docker/api-entrypoint.sh /usr/local/bin/api-entrypoint.sh
+RUN chmod +x /usr/local/bin/api-entrypoint.sh
+
+RUN mkdir -p /data/uploads
+EXPOSE 3000
+
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/api-entrypoint.sh"]

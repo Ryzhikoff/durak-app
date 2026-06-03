@@ -1,0 +1,20 @@
+{
+  "name": "durak-app",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev:api": "pnpm --filter @durak/api dev",
+    "dev:web": "pnpm --filter @durak/web dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "docker:up": "docker compose -f docker/docker-compose.yml up --build",
+    "docker:down": "docker compose -f docker/docker-compose.yml down",
+    "prisma:migrate": "pnpm --filter @durak/api prisma:migrate",
+    "prisma:generate": "pnpm --filter @durak/api prisma:generate"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

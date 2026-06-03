@@ -1,0 +1,21 @@
+node_modules
+dist
+build
+.DS_Store
+*.log
+.env
+.env.local
+.env.*.local
+coverage
+.turbo
+.next
+.vite
+.cache
+*.tsbuildinfo
+uploads
+postgres-data
+redis-data
+
+# Prisma
+apps/api/prisma/migrations/.migrate_lock
+
