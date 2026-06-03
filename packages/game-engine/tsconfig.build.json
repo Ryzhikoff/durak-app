@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "ES2022",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": false,
+    "isolatedModules": false,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "tests", "src/_testing/**", "src/**/*.spec.ts", "src/**/*.test.ts"]
+}

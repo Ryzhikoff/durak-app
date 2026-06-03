@@ -1,6 +1,7 @@
 import { Controller, Get } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { RedisService } from '../../infrastructure/redis/redis.service';
+import { GamesService } from '../games/games.service';
 import { LobbiesService } from '../lobbies/lobbies.service';
 
 @Controller('health')
@@ -9,6 +10,7 @@ export class HealthController {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly lobbies: LobbiesService,
+    private readonly games: GamesService,
   ) {}
 
   @Get()
@@ -16,6 +18,7 @@ export class HealthController {
     status: 'ok' | 'degraded';
     services: { postgres: boolean; redis: boolean };
     lobbies: number;
+    games: number;
   }> {
     let pgOk = false;
     let redisOk = false;
@@ -36,10 +39,17 @@ export class HealthController {
     } catch {
       lobbyCount = 0;
     }
+    let gameCount = 0;
+    try {
+      gameCount = await this.games.count();
+    } catch {
+      gameCount = 0;
+    }
     return {
       status: pgOk && redisOk ? 'ok' : 'degraded',
       services: { postgres: pgOk, redis: redisOk },
       lobbies: lobbyCount,
+      games: gameCount,
     };
   }
 }

@@ -1,0 +1,78 @@
+/**
+ * Local type surface for the game UI. We re-export the engine types we need
+ * (Card, GameStatus, GameCommand, DomainEvent, …) and add the `ClientGameState`
+ * shape produced by the backend redactor. Everything imported from
+ * `@durak/game-engine` is `import type` so the engine's runtime code does not
+ * end up in the web bundle — only the type declarations are pulled in.
+ */
+import type {
+  Card,
+  DomainEvent,
+  GameStatus,
+  Suit,
+  Table,
+} from '@durak/game-engine';
+import type { LobbySettings } from '@durak/shared-types';
+
+export type {
+  Card,
+  DomainEvent,
+  GameCommand,
+  GameStatus,
+  Suit,
+  Table,
+} from '@durak/game-engine';
+
+/** Mirrors `apps/api/src/modules/games/game-redactor.ts:ClientGamePlayer`. */
+export interface ClientGamePlayer {
+  id: string;
+  nickname: string;
+  avatarUrl: string | null;
+  cardBackId: string;
+  customCardBackUrl: string | null;
+  handSize: number;
+  /** Only populated for the viewer's own seat. */
+  hand?: Card[];
+  isFinished: boolean;
+  /** 1-indexed finishing place once the player has exited. */
+  finishPlace?: number;
+  isPassed: boolean;
+  cheatAttemptsRemaining: number;
+}
+
+/** Mirrors `apps/api/src/modules/games/game-redactor.ts:ClientGameState`. */
+export interface ClientGameState {
+  id: string;
+  settings: LobbySettings;
+  myUserId: string;
+  status: GameStatus;
+  trumpCard: Card | null;
+  trumpSuit: Suit | null;
+  deckSize: number;
+  discardSize: number;
+  table: Table;
+  boutNumber: number;
+  loserPlayerId: string | null;
+  currentAttackerId: string;
+  currentDefenderId: string;
+  passedPlayerIds: string[];
+  players: ClientGamePlayer[];
+}
+
+export interface GameSubscribePayload {
+  state: ClientGameState;
+  recentEvents: DomainEvent[];
+}
+
+export interface GameStateEvent {
+  state: ClientGameState;
+}
+
+export interface GameEventsEvent {
+  events: DomainEvent[];
+}
+
+export interface GameOverEvent {
+  state: ClientGameState;
+  events: DomainEvent[];
+}

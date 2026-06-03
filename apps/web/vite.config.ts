@@ -21,6 +21,13 @@ export default defineConfig(({ mode }) => {
           __dirname,
           '../../packages/shared-types/src/index.ts',
         ),
+        // Same reasoning as shared-types: import the game-engine straight from
+        // TS source so Vite/Rollup can statically resolve named type exports
+        // (the engine ships CJS which the bundler can't fully introspect).
+        '@durak/game-engine': path.resolve(
+          __dirname,
+          '../../packages/game-engine/src/index.ts',
+        ),
       },
     },
     server: {

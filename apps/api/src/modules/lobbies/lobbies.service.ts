@@ -2,9 +2,11 @@ import { randomBytes } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
   ALLOWED_FIRST_BOUT_LIMITS,
@@ -18,6 +20,16 @@ import {
 } from '@durak/shared-types';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { RedisService } from '../../infrastructure/redis/redis.service';
+import { GamesService } from '../games/games.service';
+
+/**
+ * Slim subset of {@link GamesService} the lobby flow depends on. Declared as
+ * an interface so unit tests can hand in a fake without pulling the full
+ * service + its prisma/redis wiring.
+ */
+export interface ILobbyGameLauncher {
+  createFromLobby(lobby: Lobby): Promise<{ gameId: string }>;
+}
 
 /** Lobby-state key prefix in Redis. Holds a JSON-encoded {@link Lobby}. */
 export const LOBBY_KEY_PREFIX = 'lobby:';
@@ -101,10 +113,6 @@ function generateLobbyId(): string {
 }
 
 function generateLockToken(): string {
-  return randomBytes(12).toString('base64url');
-}
-
-function generateGameId(): string {
   return randomBytes(12).toString('base64url');
 }
 
@@ -212,6 +220,7 @@ export class LobbiesService {
   constructor(
     private readonly redis: RedisService,
     private readonly prisma: PrismaService,
+    @Optional() @Inject(GamesService) private readonly gameLauncher?: ILobbyGameLauncher,
   ) {}
 
   setEventBus(bus: LobbyEventBus): void {
@@ -493,18 +502,26 @@ export class LobbiesService {
           message: 'All players must be ready to start',
         });
       }
-      const gameId = generateGameId();
+      // Hand off to the games subsystem: it builds a real engine state, writes
+      // it to Redis under `game:<gameId>` and sets each player's
+      // `userInGame:*` pointer. If the launcher isn't wired (unit-test path),
+      // we fall back to a synthetic id so the rest of the flow behaves as
+      // before.
+      const launchResult = this.gameLauncher
+        ? await this.gameLauncher.createFromLobby(lobby)
+        : { gameId: randomBytes(12).toString('base64url') };
+      const { gameId } = launchResult;
       lobby.status = 'in_game';
       lobby.gameId = gameId;
-      await this.persist(lobby);
-      // Drop from the public list so the index doesn't grow without bound (Phase 4
-      // will register real games separately).
+      // Drop from the public list — replaced by the live game.
       await this.redis.client.zrem(LOBBY_INDEX_KEY, lobby.id);
-      // Free up each player's userInLobby pointer so they can create a new lobby
-      // once the (fake) game ends.
+      // Free up each player's userInLobby pointer so they can create a new
+      // lobby once the game ends. NB: the games subsystem has already set
+      // `userInGame:<userId>` for the same players, so the user is never
+      // "free" in between — there's no race.
       const tx = this.redis.client.multi();
       for (const p of lobby.players) tx.del(userKey(p.userId));
-      // Lobby itself can disappear quickly — Phase 4 will manage game lifecycle.
+      // Lobby JSON itself can disappear — the game owns the canonical state now.
       tx.del(lobbyKey(lobby.id));
       await tx.exec();
       this.bus.lobbyStarted(lobby, gameId);

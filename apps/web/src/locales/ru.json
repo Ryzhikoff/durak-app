@@ -120,7 +120,80 @@
     "backToHome": "На главную",
     "playersTitle": "Игроки",
     "startedAt": "Начало",
-    "endedAt": "Конец"
+    "endedAt": "Конец",
+    "bout": "Раздача {{number}}",
+    "trump": "Козырь",
+    "deckSize_one": "{{count}} карта",
+    "deckSize_few": "{{count}} карты",
+    "deckSize_many": "{{count}} карт",
+    "deckSize_other": "{{count}} карт",
+    "discard": "Бито",
+    "status": {
+      "dealing": "Раздача карт...",
+      "attacking": "Ходит {{nickname}}",
+      "defending": "Защищается {{nickname}}",
+      "settling": "Защита успешна — скажите «бито»",
+      "over": "Партия окончена"
+    },
+    "actions": {
+      "take": "Беру",
+      "pass": "Бито",
+      "attack": "Подкинуть",
+      "beat": "Бить",
+      "translate": "Перевести"
+    },
+    "hints": {
+      "pickBeater": "Выберите карту в руке, чтобы побить"
+    },
+    "opponent": {
+      "passed": "сказал бито",
+      "cardsCount_one": "{{count}} карта",
+      "cardsCount_few": "{{count}} карты",
+      "cardsCount_many": "{{count}} карт",
+      "cardsCount_other": "{{count}} карт"
+    },
+    "over": {
+      "title": "Конец игры",
+      "youWon": "Вы выиграли!",
+      "youLost": "Вы проиграли :(",
+      "draw": "Ничья",
+      "placement": "{{place}} место",
+      "loserBadge": "Дурак",
+      "backToHome": "На главную"
+    },
+    "toast": {
+      "cardsTaken": "{{nickname}} забирает {{count}} карт(ы)",
+      "boutEnded": {
+        "beaten": "Бито!",
+        "taken": "Карты забраны",
+        "translated": "Перевод!"
+      },
+      "boutEndedFallback": "Раздача окончена",
+      "playerOut": "{{nickname}} выходит — {{place}} место",
+      "gameEnded": "Партия окончена",
+      "cardTranslated": "{{nickname}} перевёл ход",
+      "tablePassed": "{{nickname}} сказал бито",
+      "playersDrew_one": "Раздано {{count}} карта",
+      "playersDrew_few": "Раздано {{count}} карты",
+      "playersDrew_many": "Раздано {{count}} карт",
+      "playersDrew_other": "Раздано {{count}} карт"
+    },
+    "errors": {
+      "selectAttackFirst": "Сначала выберите атаку на столе",
+      "NOT_YOUR_TURN": "Сейчас не ваш ход",
+      "CARD_NOT_IN_HAND": "Этой карты нет в руке",
+      "CARD_DOES_NOT_BEAT": "Этой картой нельзя побить",
+      "CARD_RANK_NOT_ON_TABLE": "Такого ранга нет на столе",
+      "TRANSLATE_NOT_ALLOWED": "Перевод сейчас недоступен",
+      "TAKE_NOT_ALLOWED": "Брать сейчас нельзя",
+      "PASS_NOT_ALLOWED": "Сказать бито сейчас нельзя",
+      "ATTACK_LIMIT_REACHED": "Лимит карт в раздаче достигнут",
+      "ATTACK_NOT_ALLOWED": "Подкинуть сейчас нельзя",
+      "BEAT_NOT_ALLOWED": "Бить сейчас нельзя",
+      "ENTRY_NOT_FOUND": "Атака не найдена",
+      "ENTRY_ALREADY_BEATEN": "Эта атака уже побита",
+      "GAME_OVER": "Игра окончена"
+    }
   },
   "admin": {
     "usersTitle": "Игроки",

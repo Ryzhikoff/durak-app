@@ -324,6 +324,30 @@ export const LOBBY_EVENTS = {
 
 export type LobbyEventName = (typeof LOBBY_EVENTS)[keyof typeof LOBBY_EVENTS];
 
+// ---------- Live games (Phase 5) ----------
+
+/**
+ * WebSocket namespace for the live game traffic. Mounted by nginx as
+ * `/socket.io/`; the API exposes it under the `/games` namespace.
+ */
+export const GAME_NAMESPACE = '/games' as const;
+
+/**
+ * Canonical WS event names for live games. Use these from both ends to avoid
+ * string typos.
+ */
+export const GAME_EVENTS = {
+  // Client -> Server
+  subscribe: 'game:subscribe',
+  command: 'game:command',
+  // Server -> Client (per-game room)
+  state: 'game:state',
+  events: 'game:events',
+  over: 'game:over',
+} as const;
+
+export type GameEventName = (typeof GAME_EVENTS)[keyof typeof GAME_EVENTS];
+
 // ---------- Error envelope ----------
 
 export interface ApiErrorBody {

@@ -13,6 +13,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@durak/game-engine": "workspace:*",
     "@durak/shared-types": "workspace:*",
     "@tanstack/react-query": "5.62.7",
     "axios": "1.7.9",
