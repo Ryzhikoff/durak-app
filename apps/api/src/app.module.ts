@@ -15,6 +15,7 @@ import { CardBacksModule } from './modules/card-backs/card-backs.module';
 import { RatingModule } from './modules/rating/rating.module';
 import { ProfileModule } from './modules/profile/profile.module';
 import { GamesModule } from './modules/games/games.module';
+import { LobbiesModule } from './modules/lobbies/lobbies.module';
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { GamesModule } from './modules/games/games.module';
     RatingModule,
     ProfileModule,
     GamesModule,
+    LobbiesModule,
   ],
 })
 export class AppModule {}

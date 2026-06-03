@@ -40,6 +40,11 @@ COPY apps/api ./apps/api
 COPY packages ./packages
 COPY tsconfig.base.json ./
 
+# shared-types is a workspace dep imported at runtime by @durak/api; its `main`
+# now points at dist/, so emit it BEFORE the api build.
+WORKDIR /repo/packages/shared-types
+RUN pnpm build
+
 WORKDIR /repo/apps/api
 # Generate prisma client BEFORE nest build (Nest imports @prisma/client types).
 RUN pnpm prisma:generate
@@ -74,6 +79,9 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
 # 4) Copy build artefacts + prisma schema from builder.
 COPY --from=builder /repo/apps/api/dist ./apps/api/dist
 COPY --from=builder /repo/apps/api/prisma ./apps/api/prisma
+# shared-types now ships compiled JS — copy it in so node can resolve the
+# `@durak/shared-types` symlink in node_modules at runtime.
+COPY --from=builder /repo/packages/shared-types/dist ./packages/shared-types/dist
 
 # 5) Re-generate prisma client so it matches installed @prisma/client in this stage.
 WORKDIR /app/apps/api

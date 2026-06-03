@@ -5,6 +5,7 @@ import { Alert, Button, Card, Spinner } from '@/components/ui';
 import { Avatar } from '@/components/Avatar';
 import { useRating } from './hooks';
 import { useGames } from '@/features/games/hooks';
+import { LobbyListSection } from '@/features/lobbies/LobbyListSection';
 import { useAuthStore } from '@/stores/auth.store';
 import { getApiErrorMessage } from '@/lib/api';
 import type { GameSummary, RatingEntry } from '@durak/shared-types';
@@ -44,6 +45,8 @@ export function RatingPage() {
           </Link>
         ) : null}
       </header>
+
+      <LobbyListSection />
 
       <section aria-labelledby="rating-section" className="flex flex-col gap-3">
         <h2 id="rating-section" className="text-lg font-semibold">

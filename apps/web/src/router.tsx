@@ -7,6 +7,7 @@ import { AdminUsersPage } from '@/features/admin/AdminUsersPage';
 import { ProfilePage } from '@/features/profile/ProfilePage';
 import { RatingPage } from '@/features/rating/RatingPage';
 import { GamePage } from '@/features/games/GamePage';
+import { LobbyRoomPage } from '@/features/lobbies/LobbyRoomPage';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { AppShell } from '@/components/layout/AppShell';
 import { registerUnauthorizedHandler } from '@/lib/api';
@@ -51,6 +52,7 @@ export function AppRouter() {
         <Route path="/u/:id" element={<ProfilePage />} />
         <Route path="/profile" element={<MyProfileRedirect />} />
         <Route path="/games/:id" element={<GamePage />} />
+        <Route path="/lobbies/:id" element={<LobbyRoomPage />} />
         <Route
           path="/admin"
           element={

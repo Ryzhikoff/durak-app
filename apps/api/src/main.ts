@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { ValidationPipe, Logger } from '@nestjs/common';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 import fastifyCookie from '@fastify/cookie';
 import fastifyHelmet from '@fastify/helmet';
 import fastifyMultipart from '@fastify/multipart';
@@ -48,6 +49,11 @@ async function bootstrap(): Promise<void> {
   );
 
   app.useGlobalFilters(new AllExceptionsFilter());
+
+  // Socket.IO sits on the same HTTP server as Fastify. Nginx already proxies
+  // `/socket.io/` to the API; the namespace itself (`/lobbies`) is declared by
+  // the gateway.
+  app.useWebSocketAdapter(new IoAdapter(app));
 
   const port = Number(process.env.PORT ?? 3000);
   await app.listen(port, '0.0.0.0');

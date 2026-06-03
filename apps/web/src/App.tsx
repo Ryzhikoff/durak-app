@@ -1,8 +1,10 @@
 import { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { AppRouter } from './router';
 import { useMe } from './features/auth/hooks';
 import { useAuthStore } from './stores/auth.store';
+import { onLobbySocketAuthError } from './lib/socket';
 
 /**
  * Top-level component: bootstraps auth status and forces password change
@@ -16,6 +18,8 @@ export default function App() {
   const user = useAuthStore((s) => s.user);
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useTranslation();
+  const reset = useAuthStore((s) => s.reset);
 
   // Sync TanStack Query state into Zustand store (single source of truth for UI).
   // Only set if the target value actually differs to avoid noisy renders.
@@ -42,6 +46,24 @@ export default function App() {
     setUser,
     setStatus,
   ]);
+
+  // WS auth failures: drop the user to /login with a session-expired toast.
+  // We use the browser-native alert as a no-deps fallback; the project does
+  // not ship a global toast container yet, so this stays minimal.
+  useEffect(() => {
+    return onLobbySocketAuthError(() => {
+      reset();
+      const text = t('lobbies.sessionExpiredToast');
+      // Best-effort visible signal; avoid blocking the redirect.
+      if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+        // Defer alert so React can complete the navigation paint first.
+        setTimeout(() => window.alert(text), 0);
+      }
+      if (location.pathname !== '/login') {
+        navigate('/login', { replace: true });
+      }
+    });
+  }, [navigate, location.pathname, reset, t]);
 
   // Force password change page when mustChangePassword=true.
   useEffect(() => {

@@ -12,6 +12,15 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, 'src'),
+        // Resolve the shared-types workspace package straight to its TS source
+        // so Vite/Rollup can statically analyse the named exports (the CJS
+        // build emits chained `exports.X = ... = void 0` which Rollup cannot
+        // unwrap when treeshaking imports of value constants like
+        // LOBBY_NAMESPACE / LOBBY_EVENTS).
+        '@durak/shared-types': path.resolve(
+          __dirname,
+          '../../packages/shared-types/src/index.ts',
+        ),
       },
     },
     server: {

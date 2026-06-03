@@ -220,6 +220,110 @@ export interface GameListQuery {
   playerId?: string;
 }
 
+// ---------- Lobby (Phase 3) ----------
+
+/**
+ * Per-lobby game rules. Defaults live in {@link DEFAULT_LOBBY_SETTINGS}.
+ * Any participant of a waiting lobby may edit these (no host concept).
+ */
+export interface LobbySettings {
+  maxPlayers: 2 | 3 | 4 | 5 | 6;
+  /**
+   * Maximum number of attack cards in the very first bout of the game.
+   * - `5` | `6` — fixed cap.
+   * - `'defender_hand'` — equal to the number of cards in the defender's hand
+   *   at the start of the bout (i.e. the dealt hand size, 6).
+   * Allowed values: see {@link ALLOWED_FIRST_BOUT_LIMITS}.
+   */
+  firstBoutLimit: 5 | 6 | 'defender_hand';
+  attackerScope: 'all' | 'attacker_only';
+  cheatingEnabled: boolean;
+  /** 1..10. Ignored when cheatingEnabled === false. */
+  cheatAttempts: number;
+  cheatNoticeScope: 'defender_only' | 'all';
+  layoutOnRepeat: 'random' | 'preserve';
+  firstTurn: 'lowest_trump' | 'random' | 'previous_loser';
+  deckSize: 36 | 52;
+  jokers: boolean;
+  /** null = off. Allowed values: see {@link ALLOWED_TURN_TIMERS}. */
+  turnTimer: number | null;
+}
+
+export const LOBBY_PLAYER_COUNTS = [2, 3, 4, 5, 6] as const;
+export const ALLOWED_TURN_TIMERS = [null, 30, 60, 120] as const;
+export const ALLOWED_FIRST_BOUT_LIMITS = [5, 6, 'defender_hand'] as const;
+
+export const DEFAULT_LOBBY_SETTINGS: LobbySettings = {
+  maxPlayers: 6,
+  firstBoutLimit: 5,
+  attackerScope: 'all',
+  cheatingEnabled: true,
+  cheatAttempts: 1,
+  cheatNoticeScope: 'defender_only',
+  layoutOnRepeat: 'random',
+  firstTurn: 'lowest_trump',
+  deckSize: 36,
+  jokers: false,
+  turnTimer: null,
+};
+
+export type LobbyStatus = 'waiting' | 'starting' | 'in_game';
+
+export interface LobbyPlayer {
+  userId: string;
+  nickname: string;
+  avatarUrl: string | null;
+  isReady: boolean;
+}
+
+export interface Lobby {
+  id: string;
+  createdAt: string;
+  status: LobbyStatus;
+  settings: LobbySettings;
+  players: LobbyPlayer[];
+  /** Populated once status flips to 'in_game'. Phase 4 will use it. */
+  gameId: string | null;
+}
+
+/** Same shape as {@link Lobby} plus convenience aggregates for the list view. */
+export interface LobbySummary extends Lobby {
+  playerCount: number;
+  maxPlayers: LobbySettings['maxPlayers'];
+}
+
+/**
+ * WebSocket namespace handling all lobby traffic.
+ * Mounted by nginx as `/socket.io/` and exposed by the API on the
+ * `/lobbies` namespace.
+ */
+export const LOBBY_NAMESPACE = '/lobbies' as const;
+
+/**
+ * Canonical WS event names. Use these from both ends to avoid string typos.
+ */
+export const LOBBY_EVENTS = {
+  // Client -> Server
+  subscribe: 'lobbies:subscribe',
+  unsubscribe: 'lobbies:unsubscribe',
+  join: 'lobby:join',
+  leave: 'lobby:leave',
+  updateSettings: 'lobby:update_settings',
+  setReady: 'lobby:set_ready',
+  start: 'lobby:start',
+  // Server -> Client (lobby room)
+  state: 'lobby:state',
+  started: 'lobby:started',
+  deleted: 'lobby:deleted',
+  // Server -> Client (list room)
+  list: 'lobbies:list',
+  added: 'lobbies:added',
+  updated: 'lobbies:updated',
+  removed: 'lobbies:removed',
+} as const;
+
+export type LobbyEventName = (typeof LOBBY_EVENTS)[keyof typeof LOBBY_EVENTS];
+
 // ---------- Error envelope ----------
 
 export interface ApiErrorBody {

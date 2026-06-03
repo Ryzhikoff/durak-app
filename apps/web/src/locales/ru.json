@@ -193,6 +193,88 @@
     "back": "Назад",
     "error": "Ошибка"
   },
+  "lobbies": {
+    "title": "Лобби",
+    "create": "Создать лобби",
+    "creating": "Создаём...",
+    "createTitle": "Новое лобби",
+    "createFirst": "Создать первое",
+    "empty": "Пока нет открытых лобби. Создай первое!",
+    "emptyState": "Пока нет открытых лобби. Создай первое!",
+    "leaveAndCreate": "Покинуть и создать новое",
+    "leavingAndCreating": "Покидаем...",
+    "sessionExpiredToast": "Сессия истекла, войдите снова",
+    "status": {
+      "waiting": "Ожидание",
+      "starting": "Старт",
+      "in_game": "В игре"
+    },
+    "roomTitle": "Лобби",
+    "playersTitle": "Игроки",
+    "settingsTitle": "Настройки",
+    "you": "вы",
+    "statusReady": "Готов",
+    "statusNotReady": "Не готов",
+    "emptySlot": "Свободное место",
+    "ready": "Я готов",
+    "unready": "Отменить готовность",
+    "leave": "Покинуть",
+    "start": "Начать игру",
+    "starting": "Запускаем...",
+    "startBlockedNotReady": "Все игроки должны быть готовы",
+    "startBlockedTooFew": "Нужно минимум 2 игрока",
+    "startBlockedNotParticipant": "Только участники могут запускать игру",
+    "alreadyInBody": "Вы уже состоите в лобби. Перейдите туда, чтобы продолжить или покиньте его перед созданием нового.",
+    "goToCurrent": "Перейти в текущее лобби",
+    "deletedToast": "Лобби было удалено",
+    "notFoundTitle": "Лобби не найдено",
+    "notFoundDescription": "Возможно, оно было удалено или уже стартовало."
+  },
+  "lobbySettings": {
+    "resetWarning": "Изменение настроек сбрасывает готовность всех игроков.",
+    "maxPlayers": "Максимум игроков",
+    "firstBoutLimit": {
+      "label": "Максимум карт в первом отбое",
+      "five": "5 карт",
+      "six": "6 карт",
+      "defenderHand": "По числу карт у защищающегося"
+    },
+    "attackerScope": {
+      "label": "Кто может подкидывать",
+      "all": "Все",
+      "attackerOnly": "Только атакующий и переводящий"
+    },
+    "cheating": {
+      "label": "Мухляж разрешён"
+    },
+    "cheatAttempts": "Попыток мухляжа за партию",
+    "cheatNoticeScope": {
+      "label": "Кто видит мухляж",
+      "defenderOnly": "Только защищающийся",
+      "all": "Все игроки"
+    },
+    "layoutOnRepeat": {
+      "label": "Рассадка после партии",
+      "random": "Случайно",
+      "preserve": "Сохранять"
+    },
+    "firstTurn": {
+      "label": "Первый ход",
+      "lowestTrump": "Младший козырь",
+      "random": "Случайно",
+      "previousLoser": "Прошлый проигравший"
+    },
+    "deckSize": "Размер колоды",
+    "jokers": "Джокеры",
+    "turnTimer": {
+      "label": "Таймер хода",
+      "off": "Без таймера",
+      "seconds_one": "{{count}} сек",
+      "seconds_few": "{{count}} сек",
+      "seconds_many": "{{count}} сек",
+      "seconds_other": "{{count}} сек"
+    }
+  },
   "errors": {
     "INVALID_CREDENTIALS": "Неверный логин или пароль",
     "INVALID_CURRENT_PASSWORD": "Неверный текущий пароль",
@@ -210,6 +292,14 @@
     "BAD_REQUEST": "Некорректный запрос",
     "INTERNAL_ERROR": "Внутренняя ошибка сервера",
     "GAME_NOT_FOUND": "Игра не найдена",
+    "LOBBY_NOT_FOUND": "Лобби не найдено",
+    "LOBBY_FULL": "Лобби заполнено",
+    "ALREADY_IN_LOBBY": "Вы уже состоите в лобби",
+    "LOBBY_LOCKED": "Лобби сейчас занято, попробуйте ещё раз",
+    "INVALID_SETTINGS": "Некорректные настройки лобби",
+    "NOT_IN_LOBBY": "Вы не в этом лобби",
+    "NOT_ALL_READY": "Не все игроки готовы",
+    "NOT_ENOUGH_PLAYERS": "Слишком мало игроков для старта",
     "CARD_BACK_NOT_FOUND": "Такая рубашка не найдена",
     "CUSTOM_CARD_BACK_NOT_SET": "Сначала загрузите свою рубашку",
     "AVATAR_TOO_LARGE": "Файл слишком большой. Максимум 5 МБ.",

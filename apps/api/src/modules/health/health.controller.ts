@@ -1,18 +1,21 @@
 import { Controller, Get } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { RedisService } from '../../infrastructure/redis/redis.service';
+import { LobbiesService } from '../lobbies/lobbies.service';
 
 @Controller('health')
 export class HealthController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly lobbies: LobbiesService,
   ) {}
 
   @Get()
   async check(): Promise<{
     status: 'ok' | 'degraded';
     services: { postgres: boolean; redis: boolean };
+    lobbies: number;
   }> {
     let pgOk = false;
     let redisOk = false;
@@ -27,9 +30,16 @@ export class HealthController {
     } catch {
       redisOk = false;
     }
+    let lobbyCount = 0;
+    try {
+      lobbyCount = await this.lobbies.count();
+    } catch {
+      lobbyCount = 0;
+    }
     return {
       status: pgOk && redisOk ? 'ok' : 'degraded',
       services: { postgres: pgOk, redis: redisOk },
+      lobbies: lobbyCount,
     };
   }
 }

@@ -29,6 +29,21 @@ vi.mock('@/features/games/api', () => ({
   fetchGame: vi.fn(),
 }));
 
+// Bypass WS bootstrap so the rating page renders in jsdom.
+vi.mock('@/features/lobbies/api', () => ({
+  createLobby: vi.fn(),
+  listLobbies: vi.fn(async () => []),
+  fetchLobby: vi.fn(),
+}));
+vi.mock('@/lib/socket', () => ({
+  lobbiesSocket: { on: vi.fn(), off: vi.fn(), once: vi.fn(), connected: false },
+  useLobbySocket: vi.fn(),
+  connectLobbies: vi.fn(),
+  disconnectLobbies: vi.fn(),
+  SocketAckError: class SocketAckError extends Error {},
+  emitWithAck: vi.fn(),
+}));
+
 import { RatingPage } from './RatingPage';
 
 function renderWithProviders(ui: React.ReactNode) {
