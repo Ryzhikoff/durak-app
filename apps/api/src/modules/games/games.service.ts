@@ -14,7 +14,13 @@ import {
   type GameState,
   type PlayerSeat,
 } from '@durak/game-engine';
-import type { Lobby } from '@durak/shared-types';
+import type { ChatMessage, ChatMessageReply, Lobby } from '@durak/shared-types';
+import {
+  CHAT_HISTORY_LIMIT,
+  CHAT_MESSAGE_MAX_LENGTH,
+  CHAT_REPLY_SNIPPET_MAX_LENGTH,
+  EMOJI_REACTIONS,
+} from '@durak/shared-types';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { RedisService } from '../../infrastructure/redis/redis.service';
 import {
@@ -30,6 +36,18 @@ export const GAME_KEY_PREFIX = 'game:';
 export const GAME_PROFILES_SUFFIX = ':profiles';
 /** Per-game recent-events ring (Redis list, RPUSH/LTRIM). */
 export const GAME_EVENTS_SUFFIX = ':events';
+/** Per-game in-memory chat (Redis list, RPUSH/LTRIM). */
+export const GAME_CHAT_SUFFIX = ':chat';
+/**
+ * Per-game reactions HASH — `game:<id>:chat:reactions`.
+ * field = `<messageId>:<userId>`, value = emoji glyph. One row per (msg, user)
+ * pair makes both toggle and override O(1).
+ */
+export const GAME_CHAT_REACTIONS_SUFFIX = ':chat:reactions';
+/** Per-(game,user) rate-limit gate for chat sends — set with PX TTL. */
+export const CHAT_RATE_KEY_PREFIX = 'chat-rate:';
+/** Minimum interval between two chat sends from the same user, in ms. */
+export const CHAT_RATE_LIMIT_MS = 1000;
 /** Reverse-lookup: `userInGame:<userId>` -> gameId. */
 export const USER_IN_GAME_KEY_PREFIX = 'userInGame:';
 /** Index of live games (sorted-set, score=createdAt epoch ms) for /health. */
@@ -88,11 +106,26 @@ interface GameEventBus {
    * AND keeps the room alive long enough for clients to display the result.
    */
   gameEnded(state: GameState, events: DomainEvent[]): void;
+  /**
+   * New chat message — gateway broadcasts to the per-game room so every player
+   * (including the sender, for the optimistic-confirm path) sees it once.
+   */
+  chatMessage(gameId: string, message: ChatMessage): void;
+  /**
+   * Reaction add/change/remove — gateway broadcasts so every viewer's chip row
+   * updates without a re-fetch.
+   */
+  chatReaction(
+    gameId: string,
+    update: { messageId: string; userId: string; emoji: string | null },
+  ): void;
 }
 
 const NOOP_BUS: GameEventBus = {
   gameUpdated: () => undefined,
   gameEnded: () => undefined,
+  chatMessage: () => undefined,
+  chatReaction: () => undefined,
 };
 
 function gameKey(id: string): string {
@@ -105,6 +138,28 @@ function profilesKey(id: string): string {
 
 function eventsKey(id: string): string {
   return `${GAME_KEY_PREFIX}${id}${GAME_EVENTS_SUFFIX}`;
+}
+
+function chatKey(id: string): string {
+  return `${GAME_KEY_PREFIX}${id}${GAME_CHAT_SUFFIX}`;
+}
+
+function chatReactionsKey(id: string): string {
+  return `${GAME_KEY_PREFIX}${id}${GAME_CHAT_REACTIONS_SUFFIX}`;
+}
+
+function reactionField(messageId: string, userId: string): string {
+  return `${messageId}:${userId}`;
+}
+
+const VALID_REACTIONS = new Set<string>(EMOJI_REACTIONS);
+
+function chatRateKey(gameId: string, userId: string): string {
+  return `${CHAT_RATE_KEY_PREFIX}${gameId}:${userId}`;
+}
+
+function generateChatMessageId(): string {
+  return randomBytes(12).toString('base64url');
 }
 
 function userInGameKey(userId: string): string {
@@ -134,6 +189,37 @@ function generateSeed(): number {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Truncate a chat text down to {@link CHAT_REPLY_SNIPPET_MAX_LENGTH} chars. */
+function snippet(text: string): string {
+  if (text.length <= CHAT_REPLY_SNIPPET_MAX_LENGTH) return text;
+  return text.slice(0, CHAT_REPLY_SNIPPET_MAX_LENGTH);
+}
+
+/**
+ * Convert the raw HGETALL of the reactions HASH (fields = "msgId:userId") into
+ * a `messageId -> { userId -> emoji }` map for fast O(1) merging into history.
+ */
+function groupReactions(
+  raw: Record<string, string> | null | undefined,
+): Map<string, Record<string, string>> {
+  const out = new Map<string, Record<string, string>>();
+  if (!raw) return out;
+  for (const [field, emoji] of Object.entries(raw)) {
+    const sep = field.indexOf(':');
+    if (sep === -1) continue;
+    const messageId = field.slice(0, sep);
+    const userId = field.slice(sep + 1);
+    if (!messageId || !userId) continue;
+    let bucket = out.get(messageId);
+    if (!bucket) {
+      bucket = {};
+      out.set(messageId, bucket);
+    }
+    bucket[userId] = emoji;
+  }
+  return out;
 }
 
 @Injectable()
@@ -293,6 +379,214 @@ export class GamesService {
       }
       return { state: nextState, events };
     });
+  }
+
+  // -------- chat --------
+
+  /**
+   * Append a new chat message to the game's Redis-only chat log. Validates:
+   *  - the game exists,
+   *  - the caller is a current participant,
+   *  - the text is non-empty after trim and ≤ {@link CHAT_MESSAGE_MAX_LENGTH},
+   *  - the caller hasn't sent another message in the last {@link CHAT_RATE_LIMIT_MS}.
+   *
+   * On success the message is RPUSH-ed, the list is trimmed to the last
+   * {@link CHAT_HISTORY_LIMIT} entries, the TTL is refreshed to match the game
+   * state, and the bus is notified so the gateway can broadcast.
+   */
+  async appendChatMessage(
+    gameId: string,
+    userId: string,
+    rawText: string,
+    replyToId?: string,
+  ): Promise<ChatMessage> {
+    const text = typeof rawText === 'string' ? rawText.trim() : '';
+    if (text.length === 0 || text.length > CHAT_MESSAGE_MAX_LENGTH) {
+      throw new BadRequestException({
+        code: 'CHAT_TEXT_INVALID',
+        message: 'Chat message text must be 1..280 characters',
+      });
+    }
+
+    // Membership check first so an unauthorised caller never leaks the
+    // game's existence via a different error code.
+    const state = await this.tryGet(gameId);
+    if (!state || !state.players.some((p) => p.id === userId)) {
+      throw new NotFoundException({ code: 'GAME_NOT_FOUND', message: 'Game not found' });
+    }
+
+    // Per-user rate-limit: 1 message per CHAT_RATE_LIMIT_MS via SET NX PX.
+    const rateKey = chatRateKey(gameId, userId);
+    const setRes = await this.redis.client.set(rateKey, '1', 'PX', CHAT_RATE_LIMIT_MS, 'NX');
+    if (setRes !== 'OK') {
+      throw new BadRequestException({
+        code: 'CHAT_RATE_LIMIT',
+        message: 'Too many messages — slow down',
+      });
+    }
+
+    // Denormalise nickname/avatar at write time. The lobby fallback (used by
+    // tests) makes this resilient when profiles are absent.
+    const profiles = await this.getProfiles(gameId);
+    const profile = profiles[userId];
+    const seat = state.players.find((p) => p.id === userId);
+    const nickname = profile?.nickname ?? seat?.nickname ?? 'player';
+    const avatarUrl = profile?.avatarUrl ?? null;
+
+    // Resolve replyTo against the current history. We do this AFTER taking the
+    // rate gate so an unknown id still costs the caller a slot — same shape as
+    // a successful send. If the target is missing we silently null the reply
+    // (UX-soft: the target may have aged out, no reason to error).
+    let replyTo: ChatMessageReply | null = null;
+    if (typeof replyToId === 'string' && replyToId.trim().length > 0) {
+      const target = await this.findChatMessageById(gameId, replyToId.trim());
+      if (target) {
+        replyTo = {
+          messageId: target.id,
+          userId: target.userId,
+          nickname: target.nickname,
+          textSnippet: snippet(target.text),
+        };
+      }
+    }
+
+    const isOver = state.status === 'game_over';
+    const ttl = isOver ? GAME_OVER_TTL_SECONDS : GAME_TTL_SECONDS;
+    const message: ChatMessage = {
+      id: generateChatMessageId(),
+      userId,
+      nickname,
+      avatarUrl,
+      text,
+      createdAt: new Date().toISOString(),
+      replyTo,
+      reactions: {},
+    };
+
+    const tx = this.redis.client.multi();
+    tx.rpush(chatKey(gameId), JSON.stringify(message));
+    tx.ltrim(chatKey(gameId), -CHAT_HISTORY_LIMIT, -1);
+    tx.expire(chatKey(gameId), ttl);
+    await tx.exec();
+
+    this.bus.chatMessage(gameId, message);
+    return message;
+  }
+
+  /**
+   * Toggle / set / remove a reaction. Returns the resulting emoji (or null
+   * when the reaction was cleared). Semantics:
+   *  - calling with the same emoji the user already has -> removes it
+   *  - calling with a different emoji -> overrides
+   *  - calling with `null` -> removes (idempotent)
+   *
+   * Requires the caller to be a current participant of the game. Unknown
+   * emojis are rejected with `CHAT_REACTION_INVALID`. Unknown message ids fail
+   * silently (`null` returned) so a late click on an aged-out message doesn't
+   * raise an error toast.
+   */
+  async reactToMessage(
+    gameId: string,
+    userId: string,
+    messageId: string,
+    emoji: string | null,
+  ): Promise<{ messageId: string; userId: string; emoji: string | null }> {
+    if (typeof messageId !== 'string' || messageId.trim().length === 0) {
+      throw new BadRequestException({
+        code: 'CHAT_REACTION_INVALID',
+        message: 'messageId is required',
+      });
+    }
+    if (emoji !== null && !VALID_REACTIONS.has(emoji)) {
+      throw new BadRequestException({
+        code: 'CHAT_REACTION_INVALID',
+        message: 'Unsupported reaction',
+      });
+    }
+
+    // Membership check.
+    const state = await this.tryGet(gameId);
+    if (!state || !state.players.some((p) => p.id === userId)) {
+      throw new NotFoundException({ code: 'GAME_NOT_FOUND', message: 'Game not found' });
+    }
+
+    // Soft-validate that the target message still exists in the active
+    // history. If it doesn't, drop the call silently — the chip wouldn't
+    // render anyway.
+    const target = await this.findChatMessageById(gameId, messageId);
+    if (!target) {
+      return { messageId, userId, emoji: null };
+    }
+
+    const isOver = state.status === 'game_over';
+    const ttl = isOver ? GAME_OVER_TTL_SECONDS : GAME_TTL_SECONDS;
+    const key = chatReactionsKey(gameId);
+    const field = reactionField(messageId, userId);
+
+    // Toggle-off when the user re-clicks their current emoji.
+    const existing = await this.redis.client.hget(key, field);
+    const next: string | null = emoji === null || existing === emoji ? null : emoji;
+
+    if (next === null) {
+      await this.redis.client.hdel(key, field);
+    } else {
+      await this.redis.client.hset(key, field, next);
+      await this.redis.client.expire(key, ttl);
+    }
+
+    this.bus.chatReaction(gameId, { messageId, userId, emoji: next });
+    return { messageId, userId, emoji: next };
+  }
+
+  /**
+   * Return the chat history for a participant. Non-members get an empty array
+   * (no leak: a guess of a real id and a wrong id look the same).
+   *
+   * Reactions live in a separate HASH and are merged in at read time. We do a
+   * single HGETALL and partition by messageId so the result is plain
+   * `Record<userId, emoji>` per message.
+   */
+  async fetchChatHistory(gameId: string, userId: string): Promise<ChatMessage[]> {
+    const state = await this.tryGet(gameId);
+    if (!state || !state.players.some((p) => p.id === userId)) {
+      return [];
+    }
+    const raw = await this.redis.client.lrange(chatKey(gameId), 0, -1);
+    const reactionsRaw = await this.redis.client.hgetall(chatReactionsKey(gameId));
+    const reactionsByMessage = groupReactions(reactionsRaw);
+    const out: ChatMessage[] = [];
+    for (const entry of raw) {
+      try {
+        const msg = JSON.parse(entry) as ChatMessage;
+        // Backfill fields for any pre-Phase 5.1 messages already in Redis.
+        if (!msg.replyTo) msg.replyTo = null;
+        msg.reactions = reactionsByMessage.get(msg.id) ?? {};
+        out.push(msg);
+      } catch {
+        /* corrupted entry — ignore */
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Look up a single chat message by id in the rolling LIST. Returns null when
+   * the id has aged out of the history window.
+   */
+  private async findChatMessageById(
+    gameId: string,
+    messageId: string,
+  ): Promise<ChatMessage | null> {
+    const raw = await this.redis.client.lrange(chatKey(gameId), 0, -1);
+    for (const entry of raw) {
+      try {
+        const msg = JSON.parse(entry) as ChatMessage;
+        if (msg.id === messageId) return msg;
+      } catch {
+        /* corrupted entry — ignore */
+      }
+    }
+    return null;
   }
 
   // -------- internals --------

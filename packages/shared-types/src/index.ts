@@ -340,13 +340,110 @@ export const GAME_EVENTS = {
   // Client -> Server
   subscribe: 'game:subscribe',
   command: 'game:command',
+  chatSend: 'game:chat_send',
+  chatFetch: 'game:chat_fetch',
+  chatReact: 'game:chat_react',
   // Server -> Client (per-game room)
   state: 'game:state',
   events: 'game:events',
   over: 'game:over',
+  chatMessage: 'game:chat_message',
+  chatReaction: 'game:chat_reaction',
 } as const;
 
 export type GameEventName = (typeof GAME_EVENTS)[keyof typeof GAME_EVENTS];
+
+/**
+ * Snapshot of the reply target denormalised onto the replying message at write
+ * time. We never resolve the original message at read time — if the target was
+ * trimmed out of history the snapshot is still enough to render the quote.
+ */
+export interface ChatMessageReply {
+  messageId: string;
+  userId: string;
+  nickname: string;
+  /** First 80 characters of the target text, trimmed. */
+  textSnippet: string;
+}
+
+/**
+ * In-game chat message. Lives only in Redis alongside the game state; reaped
+ * by TTL when the game ends. The nickname / avatarUrl are denormalised at
+ * write time so the renderer doesn't need to resolve profiles on read.
+ */
+export interface ChatMessage {
+  id: string;
+  userId: string;
+  nickname: string;
+  avatarUrl: string | null;
+  text: string;
+  /** ISO 8601 timestamp. */
+  createdAt: string;
+  /** Optional snapshot of the message we're replying to. */
+  replyTo: ChatMessageReply | null;
+  /**
+   * Reactions to this message. Key = userId of the reactor, value = chosen
+   * emoji from {@link EMOJI_REACTIONS}. One reaction per user — the latest
+   * write overrides the previous one (or removes it when the same emoji is
+   * clicked again).
+   */
+  reactions: Record<string, string>;
+}
+
+/** Hard cap matches the backend validator; mirrored on the client for UX. */
+export const CHAT_MESSAGE_MAX_LENGTH = 280;
+/** Server-side rolling window of the most recent messages we keep per game. */
+export const CHAT_HISTORY_LIMIT = 100;
+/** Max length of the denormalised replyTo text snippet. */
+export const CHAT_REPLY_SNIPPET_MAX_LENGTH = 80;
+
+/**
+ * Whitelist of allowed reaction emojis. The picker uses the same list so what
+ * the user sees is exactly what the server will accept. The clown 🤡 is in.
+ */
+export const EMOJI_REACTIONS = [
+  '\u{1F600}', // grinning
+  '\u{1F602}', // joy
+  '\u{1F923}', // rofl
+  '\u{1F60A}', // blush
+  '\u{1F60D}', // heart eyes
+  '\u{1F618}', // kiss
+  '\u{1F60E}', // sunglasses
+  '\u{1F914}', // thinking
+  '\u{1F928}', // raised brow
+  '\u{1F634}', // sleeping
+  '\u{1F62D}', // sob
+  '\u{1F631}', // scream
+  '\u{1F621}', // pouting
+  '\u{1F92C}', // cursing
+  '\u{1F92F}', // exploding head
+  '\u{1F929}', // star eyes
+  '\u{1F973}', // partying
+  '\u{1F91D}', // handshake
+  '\u{1F44D}', // thumbs up
+  '\u{1F44E}', // thumbs down
+  '\u{1F44F}', // clap
+  '\u{1F64C}', // raised hands
+  '\u{1F64F}', // folded hands
+  '\u{1F4AA}', // muscle
+  '❤️', // red heart
+  '\u{1F525}', // fire
+  '✨', // sparkles
+  '\u{1F4AF}', // 100
+  '\u{1F389}', // party popper
+  '\u{1F0CF}', // joker card
+  '\u{1F921}', // clown face
+] as const;
+
+export type ChatReactionEmoji = (typeof EMOJI_REACTIONS)[number];
+
+/** Server -> client broadcast payload for a reaction change. */
+export interface ChatReactionUpdate {
+  messageId: string;
+  userId: string;
+  /** null = the reaction was removed. */
+  emoji: string | null;
+}
 
 // ---------- Error envelope ----------
 

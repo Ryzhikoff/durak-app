@@ -83,6 +83,7 @@ export type GameStatus =
   | 'bout_attack' // waiting for first attack of a new bout
   | 'bout_defense' // waiting for defender to beat / take / translate
   | 'bout_settle' // defender beat everything; waiting for "пас" / extra throws
+  | 'bout_take_pending' // defender said "беру"; throwers may add more or say "пусть берёт"
   | 'game_over';
 
 export type BoutOutcome = 'beaten' | 'taken' | 'translated';
@@ -201,6 +202,7 @@ export type DomainEvent =
     }
   | { type: 'CardTranslated'; fromPlayerId: PlayerId; newDefenderId: PlayerId; card: Card }
   | { type: 'TablePassed'; sayerId: PlayerId }
+  | { type: 'DefenderTookCalled'; defenderId: PlayerId }
   | { type: 'BoutEnded'; outcome: BoutOutcome; boutNumber: number }
   | { type: 'CardsTaken'; defenderId: PlayerId; count: number }
   | {

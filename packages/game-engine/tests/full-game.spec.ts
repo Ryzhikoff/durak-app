@@ -99,8 +99,8 @@ function nextCommand(state: GameState): GameCommand | null {
     return { type: 'take', playerId: defender.id };
   }
 
-  // bout_settle: try throwing extras, else everyone passes.
-  if (state.status === 'bout_settle') {
+  // bout_settle / bout_take_pending: try throwing extras, else everyone passes.
+  if (state.status === 'bout_settle' || state.status === 'bout_take_pending') {
     // Eligible throwers: non-defender, non-finished, who can throw.
     const eligible = state.players.filter(
       (p) =>
@@ -108,8 +108,10 @@ function nextCommand(state: GameState): GameCommand | null {
         !state.finishedPlayers.includes(p.id) &&
         !state.passedPlayerIds.includes(p.id),
     );
-    // Only attempt to throw if there is still capacity in the bout.
-    if (attacksRemaining(state) > 0) {
+    // Only attempt to throw if there is still capacity in the bout. In
+    // `bout_take_pending` extra throws just pile onto the defender's take —
+    // bot does NOT throw there to keep the game progressing.
+    if (state.status === 'bout_settle' && attacksRemaining(state) > 0) {
       for (const p of eligible) {
         // Settings.attackerScope may forbid non-attacker throws.
         if (state.settings.attackerScope === 'attacker_only' && p.id !== attacker.id) continue;

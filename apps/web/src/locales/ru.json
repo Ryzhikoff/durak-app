@@ -132,18 +132,23 @@
       "dealing": "Раздача карт...",
       "attacking": "Ходит {{nickname}}",
       "defending": "Защищается {{nickname}}",
-      "settling": "Защита успешна — скажите «бито»",
+      "settling": "Все атаки отбиты",
+      "takePending": "{{nickname}} берёт — можно подкинуть",
       "over": "Партия окончена"
     },
     "actions": {
       "take": "Беру",
       "pass": "Бито",
+      "passTake": "Пусть берёт",
       "attack": "Подкинуть",
-      "beat": "Бить",
+      "beat": "Побить",
       "translate": "Перевести"
     },
     "hints": {
-      "pickBeater": "Выберите карту в руке, чтобы побить"
+      "cantBeat": "Этой картой нельзя побить",
+      "cantTranslate": "Эту карту нельзя перевести",
+      "cantAttack": "Эту карту нельзя подкинуть",
+      "alreadyBeaten": "Эта атака уже побита"
     },
     "opponent": {
       "passed": "сказал бито",
@@ -173,13 +178,13 @@
       "gameEnded": "Партия окончена",
       "cardTranslated": "{{nickname}} перевёл ход",
       "tablePassed": "{{nickname}} сказал бито",
+      "defenderTookCalled": "{{nickname}} берёт — можно подкинуть",
       "playersDrew_one": "Раздано {{count}} карта",
       "playersDrew_few": "Раздано {{count}} карты",
       "playersDrew_many": "Раздано {{count}} карт",
       "playersDrew_other": "Раздано {{count}} карт"
     },
     "errors": {
-      "selectAttackFirst": "Сначала выберите атаку на столе",
       "NOT_YOUR_TURN": "Сейчас не ваш ход",
       "CARD_NOT_IN_HAND": "Этой карты нет в руке",
       "CARD_DOES_NOT_BEAT": "Этой картой нельзя побить",
@@ -192,7 +197,72 @@
       "BEAT_NOT_ALLOWED": "Бить сейчас нельзя",
       "ENTRY_NOT_FOUND": "Атака не найдена",
       "ENTRY_ALREADY_BEATEN": "Эта атака уже побита",
+      "CHEAT_DISABLED": "Мухляж в этой игре выключен",
+      "CHEAT_LIMIT": "Попытки мухляжа закончились",
       "GAME_OVER": "Игра окончена"
+    },
+    "cheat": {
+      "noticeAria": "Заявить о жульничестве",
+      "confirmTitle": "Заявить о жульничестве?",
+      "confirmAttackBody": "Считаете, что эту карту положили против правил? Если ошибётесь — попыток не потеряете, но если правы — нарушитель потеряет одну попытку.",
+      "confirmBeatBody": "Считаете, что этой картой нельзя было побить? Если ошибётесь — попыток не потеряете, но если правы — нарушитель потеряет одну попытку.",
+      "confirmAction": "Заявить",
+      "attemptsRemaining_one": "Осталось {{count}} попытка мухляжа",
+      "attemptsRemaining_few": "Осталось {{count}} попытки мухляжа",
+      "attemptsRemaining_many": "Осталось {{count}} попыток мухляжа",
+      "attemptsRemaining_other": "Осталось {{count}} попыток мухляжа",
+      "unknownPlayer": "игрок",
+      "toast": {
+        "caught": "{{noticer}} поймал {{cheater}} на жульничестве!",
+        "falseAlarm": "{{noticer}} подал жалобу, но карта была легальна"
+      }
+    },
+    "settings": {
+      "title": "Правила партии",
+      "openButton": "Правила",
+      "openAria": "Показать правила партии",
+      "on": "Включено",
+      "off": "Выключено",
+      "players": "Игроков",
+      "playersValue": "{{current}} / {{max}}",
+      "deck": "Колода",
+      "deckValue": "{{size}} карт, джокеры — {{jokers}}",
+      "jokersOn": "вкл",
+      "jokersOff": "выкл"
+    },
+    "chat": {
+      "title": "Чат",
+      "openButton": "Чат",
+      "openAria": "Открыть чат",
+      "placeholder": "Сообщение...",
+      "send": "Отправить",
+      "empty": "Чат начнётся когда кто-то напишет. Не стесняйся 😊",
+      "tooLong": "Слишком длинное сообщение",
+      "rateLimit": "Слишком быстро. Подожди секунду",
+      "unreadAria_one": "{{count}} новое сообщение",
+      "unreadAria_few": "{{count}} новых сообщения",
+      "unreadAria_many": "{{count}} новых сообщений",
+      "unreadAria_other": "{{count}} новых сообщений",
+      "emoji": {
+        "toggle": "Эмодзи",
+        "pickerLabel": "Выбор эмодзи"
+      },
+      "reply": {
+        "label": "Ответить",
+        "banner": "В ответ на {{nickname}}",
+        "cancel": "Отменить"
+      },
+      "react": {
+        "add": "Реакция",
+        "pickerLabel": "Выбор реакции"
+      },
+      "relative": {
+        "justNow": "только что",
+        "minutesAgo_one": "{{count}} мин назад",
+        "minutesAgo_few": "{{count}} мин назад",
+        "minutesAgo_many": "{{count}} мин назад",
+        "minutesAgo_other": "{{count}} мин назад"
+      }
     }
   },
   "admin": {
@@ -378,6 +448,10 @@
     "AVATAR_TOO_LARGE": "Файл слишком большой. Максимум 5 МБ.",
     "AVATAR_INVALID_TYPE": "Неподдерживаемый формат. Используйте JPEG, PNG или WebP.",
     "INVALID_FILE": "Не удалось загрузить файл",
+    "CHAT_RATE_LIMIT": "Слишком быстро",
+    "CHAT_TEXT_INVALID": "Некорректное сообщение",
+    "CHAT_REPLY_NOT_FOUND": "Сообщение не найдено",
+    "CHAT_REACTION_INVALID": "Недопустимая реакция",
     "generic": "Что-то пошло не так",
     "boundary": {
       "title": "Что-то пошло не так",

@@ -28,8 +28,19 @@ export function makeJokerId(color: 'red' | 'black'): string {
 }
 
 /**
+ * Maps a standard-card suit to its colour. Used by the joker beat rule.
+ */
+export function suitColor(suit: Suit): 'red' | 'black' {
+  return suit === 'hearts' || suit === 'diamonds' ? 'red' : 'black';
+}
+
+/**
  * Standard "beats" relation:
- * - jokers beat everything except other jokers
+ * - a joker beats a standard card iff the card's suit matches the joker's
+ *   colour (red joker → hearts/diamonds; black joker → spades/clubs).
+ *   Trump suit is irrelevant for jokers.
+ * - jokers never beat other jokers.
+ * - standard cards never beat a joker (not even the trump ace).
  * - same suit + higher rank → beats
  * - trump beats non-trump
  * - higher trump beats lower trump
@@ -38,7 +49,10 @@ export function makeJokerId(color: 'red' | 'black'): string {
  */
 export function beats(defender: Card, attacker: Card, trumpSuit: Suit | null): boolean {
   if (isJoker(defender)) {
-    return !isJoker(attacker);
+    if (isJoker(attacker)) {
+      return false;
+    }
+    return suitColor(attacker.suit) === defender.color;
   }
   if (isJoker(attacker)) {
     return false;

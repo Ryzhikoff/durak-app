@@ -15,13 +15,17 @@ import { nextActivePlayerIndex } from '../strategies/translate-policy.js';
  * Maximum number of NEW attack cards that can still be added on top of the
  * current table. Takes into account:
  *  - the per-bout cap (`firstBoutLimit` strategy),
- *  - the defender's current hand size (you can't out-attack the defender),
+ *  - the defender's hand size AT THE START OF THE BOUT — not current. The
+ *    standard rule is "defender must beat as many cards as they could have
+ *    held when the bout opened"; once they've started beating, their current
+ *    hand shrinks, but the bout cap stays tied to the initial size, otherwise
+ *    a defender who beat 2 cards from a 4-card hand would suddenly be immune
+ *    to any further throw-ins despite having room to beat them.
  *  - cards already on the table.
  */
 export function attacksRemaining(state: GameState): number {
   const cap = defaultFirstBoutLimit.limit(state);
-  const defenderHand = state.players[state.currentDefenderIndex].hand.length;
-  const headroom = Math.min(cap, defenderHand);
+  const headroom = Math.min(cap, state.initialDefenderHandSize);
   return Math.max(0, headroom - state.table.attacks.length);
 }
 

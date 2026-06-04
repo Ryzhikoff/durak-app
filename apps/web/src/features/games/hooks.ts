@@ -7,20 +7,26 @@
  * single place. Incoming `game:state`/`game:events`/`game:over` events patch
  * the cache; `useGameCommand` provides the imperative outbound channel.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { GAME_EVENTS } from '@durak/shared-types';
 import { fetchGame, listGames } from './api';
 import {
+  fetchChatHistory,
   gamesSocket,
+  sendChatMessage,
+  sendChatReaction,
   sendGameCommand,
   subscribeGame,
   useGameSocket,
 } from './socket';
 import type { GameListQuery } from '@durak/shared-types';
 import type {
+  ChatMessage,
   ClientGameState,
   DomainEvent,
+  GameChatMessageEvent,
+  GameChatReactionEvent,
   GameCommand,
   GameEventsEvent,
   GameOverEvent,
@@ -57,6 +63,48 @@ export interface LiveGameQueryData {
   recentEvents: DomainEvent[];
   /** Events we have already toasted; the page is responsible for clearing them. */
   unseenEvents: DomainEvent[];
+  /** Chat backlog kept in sync via `game:chat_message` broadcasts. */
+  chatMessages: ChatMessage[];
+}
+
+const CHAT_BUFFER_LIMIT = 200;
+
+/** Internal: de-duplicating append. New messages are pushed at the end. */
+function appendChat(
+  existing: ChatMessage[] | undefined,
+  incoming: ChatMessage[],
+): ChatMessage[] {
+  const base = existing ?? [];
+  if (incoming.length === 0) return base;
+  const seen = new Set(base.map((m) => m.id));
+  const merged = [...base];
+  for (const m of incoming) {
+    if (!seen.has(m.id)) {
+      merged.push(m);
+      seen.add(m.id);
+    }
+  }
+  return merged.slice(-CHAT_BUFFER_LIMIT);
+}
+
+/** Internal: immutably patch a single message's reactions in place. */
+function applyReaction(
+  messages: ChatMessage[],
+  update: GameChatReactionEvent,
+): ChatMessage[] {
+  let touched = false;
+  const next = messages.map((m) => {
+    if (m.id !== update.messageId) return m;
+    touched = true;
+    const reactions = { ...(m.reactions ?? {}) };
+    if (update.emoji === null) {
+      delete reactions[update.userId];
+    } else {
+      reactions[update.userId] = update.emoji;
+    }
+    return { ...m, reactions };
+  });
+  return touched ? next : messages;
 }
 
 /**
@@ -85,7 +133,12 @@ export function useGameState(id: string | undefined) {
     qc.setQueryData<LiveGameQueryData>(GAME_ROOM_KEY(id), (prev) =>
       prev
         ? { ...prev, state: snapshot.data }
-        : { state: snapshot.data, recentEvents: [], unseenEvents: [] },
+        : {
+            state: snapshot.data,
+            recentEvents: [],
+            unseenEvents: [],
+            chatMessages: [],
+          },
     );
   }, [id, snapshot.data, qc]);
 
@@ -100,6 +153,7 @@ export function useGameState(id: string | undefined) {
             state: snapshot.data,
             recentEvents: [],
             unseenEvents: [],
+            chatMessages: [],
           }
         : undefined,
   });
@@ -112,7 +166,12 @@ export function useGameState(id: string | undefined) {
       qc.setQueryData<LiveGameQueryData>(GAME_ROOM_KEY(id), (prev) =>
         prev
           ? { ...prev, state }
-          : { state, recentEvents: [], unseenEvents: [] },
+          : {
+              state,
+              recentEvents: [],
+              unseenEvents: [],
+              chatMessages: [],
+            },
       );
     };
     const onEvents = ({ events }: GameEventsEvent) => {
@@ -137,19 +196,34 @@ export function useGameState(id: string | undefined) {
           state,
           recentEvents: [...baseRecent, ...events].slice(-RECENT_EVENTS_LIMIT),
           unseenEvents: [...baseUnseen, ...events],
+          chatMessages: prev?.chatMessages ?? [],
         };
+      });
+    };
+    const onChatMessage = ({ message }: GameChatMessageEvent) => {
+      qc.setQueryData<LiveGameQueryData>(GAME_ROOM_KEY(id), (prev) => {
+        if (!prev) return prev;
+        return { ...prev, chatMessages: appendChat(prev.chatMessages, [message]) };
+      });
+    };
+    const onChatReaction = (update: GameChatReactionEvent) => {
+      qc.setQueryData<LiveGameQueryData>(GAME_ROOM_KEY(id), (prev) => {
+        if (!prev) return prev;
+        return { ...prev, chatMessages: applyReaction(prev.chatMessages, update) };
       });
     };
 
     socket.on(GAME_EVENTS.state, onState);
     socket.on(GAME_EVENTS.events, onEvents);
     socket.on(GAME_EVENTS.over, onOver);
+    socket.on(GAME_EVENTS.chatMessage, onChatMessage);
+    socket.on(GAME_EVENTS.chatReaction, onChatReaction);
 
     let cancelled = false;
     const trySubscribe = () => {
       if (cancelled) return;
       subscribeGame(id)
-        .then(({ state, recentEvents }) => {
+        .then(({ state, recentEvents, chatHistory }) => {
           qc.setQueryData<LiveGameQueryData>(GAME_ROOM_KEY(id), (prev) => ({
             state,
             recentEvents:
@@ -157,6 +231,10 @@ export function useGameState(id: string | undefined) {
                 ? prev.recentEvents
                 : recentEvents,
             unseenEvents: prev?.unseenEvents ?? [],
+            // Use the server-side history as canonical: on reconnect it's the
+            // best source of truth. Local in-flight messages already in `prev`
+            // get re-merged by id de-dup.
+            chatMessages: appendChat(chatHistory ?? [], prev?.chatMessages ?? []),
           }));
           setSubscribeError(null);
         })
@@ -185,6 +263,8 @@ export function useGameState(id: string | undefined) {
       socket.off(GAME_EVENTS.state, onState);
       socket.off(GAME_EVENTS.events, onEvents);
       socket.off(GAME_EVENTS.over, onOver);
+      socket.off(GAME_EVENTS.chatMessage, onChatMessage);
+      socket.off(GAME_EVENTS.chatReaction, onChatReaction);
       socket.off('connect', trySubscribe);
     };
   }, [id, qc]);
@@ -228,4 +308,118 @@ export function useGameCommand(gameId: string | undefined) {
 /** Legacy stub — preserve the old `useGame` signature for non-game callers. */
 export function useGame(id: string | undefined) {
   return useGameSnapshot(id);
+}
+
+export interface UseGameChatResult {
+  messages: ChatMessage[];
+  send: (text: string, replyToId?: string) => Promise<void>;
+  react: (messageId: string, emoji: string | null) => Promise<void>;
+  isSending: boolean;
+  unreadCount: number;
+  markAllRead: () => void;
+  /** Refetch from the server, e.g. on panel-open after a long absence. */
+  refresh: () => Promise<void>;
+}
+
+/**
+ * Chat hook bound to a specific live game. The message list is shared with
+ * {@link useGameState} via the same TanStack-Query cache key so a single
+ * `game:chat_message` broadcast updates both consumers in one pass.
+ *
+ * `unreadCount` tracks messages received since the last `markAllRead()` call —
+ * the page should call it whenever the panel becomes visible.
+ */
+export function useGameChat(gameId: string | undefined): UseGameChatResult {
+  useGameSocket();
+  const qc = useQueryClient();
+  const live = useQuery<LiveGameQueryData | undefined>({
+    queryKey: gameId
+      ? GAME_ROOM_KEY(gameId)
+      : [GAMES_QUERY_KEY, 'live', '__chat_missing__'],
+    queryFn: () => undefined,
+    enabled: !!gameId,
+    staleTime: Infinity,
+  });
+  // Memoised to keep the array reference stable when nothing changed —
+  // otherwise the `[messages]` deps below would fire on every render.
+  const messages = useMemo<ChatMessage[]>(
+    () => live.data?.chatMessages ?? [],
+    [live.data?.chatMessages],
+  );
+
+  const [isSending, setIsSending] = useState(false);
+  // Last message id the UI has acknowledged. Anything past this is "unread".
+  // Stored in a ref so toggling read state never causes a render storm.
+  const lastReadIdRef = useRef<string | null>(null);
+  const [, forceTick] = useState(0);
+
+  // Initialise lastRead on first mount to the *current* tail — so a freshly
+  // opened page doesn't render its whole backlog as "unread".
+  const initRef = useRef(false);
+  useEffect(() => {
+    if (initRef.current) return;
+    if (messages.length === 0) return;
+    initRef.current = true;
+    lastReadIdRef.current = messages[messages.length - 1]?.id ?? null;
+  }, [messages]);
+
+  const unreadCount = (() => {
+    if (messages.length === 0) return 0;
+    const lastId = lastReadIdRef.current;
+    if (!lastId) return messages.length;
+    const idx = messages.findIndex((m) => m.id === lastId);
+    if (idx === -1) return messages.length;
+    return messages.length - 1 - idx;
+  })();
+
+  const markAllRead = useCallback(() => {
+    if (messages.length === 0) {
+      lastReadIdRef.current = null;
+    } else {
+      lastReadIdRef.current = messages[messages.length - 1]?.id ?? null;
+    }
+    forceTick((n) => n + 1);
+  }, [messages]);
+
+  const send = useCallback(
+    async (rawText: string, replyToId?: string): Promise<void> => {
+      if (!gameId) throw new Error('GAME_ID_MISSING');
+      const text = rawText.trim();
+      if (!text) return;
+      setIsSending(true);
+      try {
+        // The broadcast loop will append the canonical message; we don't need
+        // to mutate the cache here. Awaiting the ack lets callers surface
+        // CHAT_RATE_LIMIT / CHAT_TEXT_INVALID errors.
+        await sendChatMessage(gameId, text, replyToId);
+      } finally {
+        setIsSending(false);
+      }
+    },
+    [gameId],
+  );
+
+  const react = useCallback(
+    async (messageId: string, emoji: string | null): Promise<void> => {
+      if (!gameId) throw new Error('GAME_ID_MISSING');
+      // Optimistically patch local state so the chip flips instantly. The
+      // server broadcast (which loops back to us too) is the canonical update;
+      // applyReaction is idempotent so the round-trip is safe.
+      const update = await sendChatReaction(gameId, messageId, emoji);
+      qc.setQueryData<LiveGameQueryData>(GAME_ROOM_KEY(gameId), (prev) =>
+        prev ? { ...prev, chatMessages: applyReaction(prev.chatMessages, update) } : prev,
+      );
+    },
+    [gameId, qc],
+  );
+
+  const refresh = useCallback(async () => {
+    if (!gameId) return;
+    const { messages: fresh } = await fetchChatHistory(gameId);
+    qc.setQueryData<LiveGameQueryData>(GAME_ROOM_KEY(gameId), (prev) =>
+      prev ? { ...prev, chatMessages: appendChat(fresh, prev.chatMessages) } : prev,
+    );
+  }, [gameId, qc]);
+
+  return { messages, send, react, isSending, unreadCount, markAllRead, refresh };
 }

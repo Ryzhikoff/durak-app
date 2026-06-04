@@ -10,7 +10,12 @@ import { useEffect } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { GAME_EVENTS, GAME_NAMESPACE } from '@durak/shared-types';
 import { emitWithAck } from '@/lib/socket';
-import type { GameCommand, GameSubscribePayload } from './types';
+import type {
+  ChatMessage,
+  ChatReactionUpdate,
+  GameCommand,
+  GameSubscribePayload,
+} from './types';
 
 export const gamesSocket: Socket = io(GAME_NAMESPACE, {
   withCredentials: true,
@@ -55,4 +60,35 @@ export function sendGameCommand(
   command: GameCommand,
 ): Promise<{ ok: true }> {
   return emitWithAck(gamesSocket, GAME_EVENTS.command, { gameId, command });
+}
+
+export function sendChatMessage(
+  gameId: string,
+  text: string,
+  replyToId?: string,
+): Promise<{ message: ChatMessage }> {
+  const payload: { gameId: string; text: string; replyToId?: string } = {
+    gameId,
+    text,
+  };
+  if (replyToId) payload.replyToId = replyToId;
+  return emitWithAck(gamesSocket, GAME_EVENTS.chatSend, payload);
+}
+
+export function fetchChatHistory(
+  gameId: string,
+): Promise<{ messages: ChatMessage[] }> {
+  return emitWithAck(gamesSocket, GAME_EVENTS.chatFetch, { gameId });
+}
+
+export function sendChatReaction(
+  gameId: string,
+  messageId: string,
+  emoji: string | null,
+): Promise<ChatReactionUpdate> {
+  return emitWithAck(gamesSocket, GAME_EVENTS.chatReact, {
+    gameId,
+    messageId,
+    emoji,
+  });
 }

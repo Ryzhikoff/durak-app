@@ -52,3 +52,13 @@
     margin: 0;
   }
 }
+
+@keyframes chat-quote-pulse {
+  0% { background-color: rgb(var(--color-accent) / 0.25); }
+  100% { background-color: transparent; }
+}
+
+.chat-quote-flash {
+  animation: chat-quote-pulse 1.2s ease-out;
+  border-radius: 0.75rem;
+}

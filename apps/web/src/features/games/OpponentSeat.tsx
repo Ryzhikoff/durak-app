@@ -1,5 +1,6 @@
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
+import { Flag } from 'lucide-react';
 import { Avatar } from '@/components/Avatar';
 import { CardBackDisplay } from './CardBackDisplay';
 import type { ClientGamePlayer } from './types';
@@ -13,6 +14,11 @@ interface OpponentSeatProps {
   className?: string;
   /** Compact mode for side-seats. */
   compact?: boolean;
+  /**
+   * If true, render a small badge showing remaining cheat attempts. Controlled
+   * by the parent (only enabled when the current game has cheatingEnabled).
+   */
+  showCheatBadge?: boolean;
 }
 
 /**
@@ -26,6 +32,7 @@ export function OpponentSeat({
   isDefender,
   className,
   compact,
+  showCheatBadge,
 }: OpponentSeatProps) {
   const { t } = useTranslation();
   // Cap visible face-downs to keep layout from blowing up at e.g. handSize=24.
@@ -61,8 +68,18 @@ export function OpponentSeat({
           size={compact ? 24 : 32}
         />
         <div className="min-w-0">
-          <div className="truncate text-xs font-medium leading-tight">
-            {player.nickname}
+          <div className="flex items-center gap-1.5">
+            <span className="truncate text-xs font-medium leading-tight">
+              {player.nickname}
+            </span>
+            {showCheatBadge ? (
+              <CheatAttemptsBadge
+                remaining={player.cheatAttemptsRemaining}
+                ariaLabel={t('game.cheat.attemptsRemaining', {
+                  count: player.cheatAttemptsRemaining,
+                })}
+              />
+            ) : null}
           </div>
           <div className="text-[10px] leading-tight text-textMuted">
             {t('game.opponent.cardsCount', { count: player.handSize })}
@@ -88,5 +105,39 @@ export function OpponentSeat({
         </div>
       ) : null}
     </div>
+  );
+}
+
+interface CheatAttemptsBadgeProps {
+  remaining: number;
+  ariaLabel: string;
+}
+
+/**
+ * Tiny pill showing the player's remaining per-game cheat attempts. Coloured
+ * grey when the player has exhausted their pool (visually "spent"), and green
+ * while they still have charges left. Mobile-first sizing: only ~14px tall so
+ * it fits inline next to the nickname.
+ */
+export function CheatAttemptsBadge({
+  remaining,
+  ariaLabel,
+}: CheatAttemptsBadgeProps) {
+  const active = remaining > 0;
+  return (
+    <span
+      aria-label={ariaLabel}
+      title={ariaLabel}
+      data-testid="cheat-attempts-badge"
+      className={clsx(
+        'inline-flex h-[14px] items-center gap-0.5 rounded-full px-1 text-[9px] font-semibold leading-none',
+        active
+          ? 'bg-emerald-600/20 text-emerald-400 ring-1 ring-emerald-500/40'
+          : 'bg-surfaceAlt text-textMuted ring-1 ring-border',
+      )}
+    >
+      <Flag className="h-2.5 w-2.5" aria-hidden />
+      <span className="tabular-nums">{remaining}</span>
+    </span>
   );
 }

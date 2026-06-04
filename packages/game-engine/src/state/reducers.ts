@@ -116,7 +116,8 @@ function reduceAttack(
   if (
     state.status !== 'bout_attack' &&
     state.status !== 'bout_defense' &&
-    state.status !== 'bout_settle'
+    state.status !== 'bout_settle' &&
+    state.status !== 'bout_take_pending'
   ) {
     return fail('ATTACK_NOT_ALLOWED', 'Cannot attack in current phase');
   }
@@ -151,22 +152,50 @@ function reduceAttack(
 
   const { entry, nextId } = nextEntry(state, card, player.id);
   let next: GameState = replacePlayer(state, player.id, { hand: newHand });
+  // A new attack invalidates previous "pass" / "пусть берёт" votes — players
+  // have to re-evaluate now that the situation changed.
+  //
+  // Status logic for throw-ins during `bout_take_pending`:
+  //   - cheatingEnabled=true: revert to `bout_defense`. A throw-in might be a
+  //     cheat (off-rank), and the defender must regain the ability to call
+  //     `notice_cheat`, beat the new card, or re-press "Беру". Locking them
+  //     into the take would force them to swallow the fake card.
+  //   - cheatingEnabled=false: stay in `bout_take_pending`. Throw-ins are
+  //     rank-validated up front, so there's no cheat to catch — the defender
+  //     stays committed to taking.
+  //
+  // For every other phase the freshly added entry is unbeaten, so we
+  // transition to `bout_defense`.
+  const nextStatus: GameState['status'] =
+    state.status === 'bout_take_pending' && !state.settings.cheatingEnabled
+      ? 'bout_take_pending'
+      : 'bout_defense';
   next = {
     ...next,
     table: { attacks: [...next.table.attacks, entry] },
     nextEntryId: nextId,
-    // A new attack invalidates previous "pass" votes — players have to
-    // re-evaluate whether they still say "бито".
     passedPlayerIds: [],
-    status: tableHasUnbeaten(next) ? 'bout_defense' : next.status,
+    status: nextStatus,
   };
-  if (next.status === 'bout_attack') {
-    next = { ...next, status: 'bout_defense' };
-  }
 
   const events: DomainEvent[] = [
     { type: 'CardAttacked', playerId: player.id, entryId: entry.id, card },
   ];
+
+  // Auto-close `bout_take_pending` when no further throws are possible and
+  // cheating is off (no rank-rule trickery is permitted). Mirrors the
+  // auto-close inside reduceTake but covers the case where a throw-in just
+  // saturated the cap.
+  if (
+    next.status === 'bout_take_pending' &&
+    !next.settings.cheatingEnabled &&
+    attacksRemaining(next) <= 0
+  ) {
+    const { state: closed, events: closeEvents } = closeBoutTaken(next);
+    events.push({ type: 'BoutEnded', outcome: 'taken', boutNumber: state.boutNumber });
+    events.push(...closeEvents);
+    next = closed;
+  }
   return { ok: true, state: next, events };
 }
 
@@ -221,10 +250,6 @@ function reduceBeat(
     },
     passedPlayerIds: [],
   };
-  // If everything is beaten, switch to settle phase awaiting passes.
-  if (tableFullyBeaten(next)) {
-    next = { ...next, status: 'bout_settle' };
-  }
   const events: DomainEvent[] = [
     {
       type: 'CardBeaten',
@@ -233,6 +258,21 @@ function reduceBeat(
       defenseCard: card,
     },
   ];
+  // If everything is beaten, the bout is settled.
+  //  - With cheating enabled we still need a settle phase so other players have
+  //    a window to `notice_cheat` on the final beat before the bout is closed.
+  //  - With cheating disabled there is no cheat to catch, so the bout closes
+  //    automatically — no "Бито" button required from throwers.
+  if (tableFullyBeaten(next)) {
+    if (state.settings.cheatingEnabled) {
+      next = { ...next, status: 'bout_settle' };
+    } else {
+      const { state: closed, events: closeEvents } = closeBoutBeaten(next);
+      events.push({ type: 'BoutEnded', outcome: 'beaten', boutNumber: state.boutNumber });
+      events.push(...closeEvents);
+      next = closed;
+    }
+  }
   return { ok: true, state: next, events };
 }
 
@@ -247,6 +287,10 @@ function reduceTranslate(
   const defender = state.players[state.currentDefenderIndex];
   if (defender.id !== command.playerId) {
     return fail('NOT_YOUR_TURN', 'Only the defender may translate');
+  }
+  // Once the defender has committed to taking, the translate window is gone.
+  if (state.status === 'bout_take_pending') {
+    return fail('TRANSLATE_NOT_ALLOWED', 'Defender is already taking — cannot translate');
   }
   const card = defender.hand.find((c) => c.id === command.cardId);
   if (!card) return fail('CARD_NOT_IN_HAND', 'Translate card not in hand');
@@ -277,12 +321,20 @@ function reduceTranslate(
   const newAttackerIndex = state.currentDefenderIndex;
   const newDefenderIndex = nextActivePlayerIndex(state, newAttackerIndex);
 
+  // Reset the bout-cap reference to the NEW defender's current hand size.
+  // attacksRemaining clamps to min(cap, initialDefenderHandSize), so without
+  // this reset the throw-in cap could exceed what the new defender can
+  // actually beat (e.g. translate to a player with 3 cards while the original
+  // defender had 6 — without the reset the bout would allow up to 6 attacks).
+  const newDefenderHandSize = next.players[newDefenderIndex].hand.length;
+
   next = {
     ...next,
     table: { attacks: [...next.table.attacks, entry] },
     nextEntryId: nextId,
     currentAttackerIndex: newAttackerIndex,
     currentDefenderIndex: newDefenderIndex,
+    initialDefenderHandSize: newDefenderHandSize,
     passedPlayerIds: [],
     status: 'bout_defense',
   };
@@ -316,12 +368,39 @@ function reduceTake(
   if (state.table.attacks.length === 0) {
     return fail('TAKE_NOT_ALLOWED', 'Table is empty');
   }
-  const { state: next, events } = closeBoutTaken(state);
-  return {
-    ok: true,
-    state: next,
-    events: [{ type: 'BoutEnded', outcome: 'taken', boutNumber: state.boutNumber }, ...events],
+
+  // Standard Дурак rule: when the defender says "беру", the bout does NOT
+  // end immediately. The throwers (attacker + supporters) get a final window
+  // to pile on extra cards of ranks already on the table. Each must then say
+  // "пусть берёт" (pass) — only when everyone has acknowledged do the cards
+  // actually move to the defender's hand.
+  //
+  // We park the bout in `bout_take_pending` until either:
+  //   - all eligible throwers have passed (handled in reducePass), or
+  //   - no thrower can possibly add a card (auto-close, see below).
+  let next: GameState = {
+    ...state,
+    // Fresh take wipes any prior "бито" votes — the situation has changed and
+    // throwers must re-evaluate now that the defender has committed to taking.
+    passedPlayerIds: [],
+    status: 'bout_take_pending',
   };
+  const events: DomainEvent[] = [
+    { type: 'DefenderTookCalled', defenderId: defender.id },
+  ];
+
+  // Auto-close convenience: with cheating disabled, every throw-in must match
+  // a rank already on the table. If the per-bout capacity is exhausted, no
+  // throw can land regardless of hands, so we don't make the player click
+  // "пусть берёт" — close the bout right away.
+  if (!state.settings.cheatingEnabled && attacksRemaining(next) <= 0) {
+    const { state: closed, events: closeEvents } = closeBoutTaken(next);
+    events.push({ type: 'BoutEnded', outcome: 'taken', boutNumber: state.boutNumber });
+    events.push(...closeEvents);
+    next = closed;
+  }
+
+  return { ok: true, state: next, events };
 }
 
 // --------------------------------------------------------------------------
@@ -337,7 +416,10 @@ function reducePass(
   if (state.finishedPlayers.includes(player.id)) {
     return fail('PASS_NOT_ALLOWED', 'Finished players cannot pass');
   }
-  if (state.status !== 'bout_settle') {
+  // `pass` is the "Бито" vote in `bout_settle` and the "Пусть берёт" vote in
+  // `bout_take_pending`. Both share the same accumulator logic; only the
+  // closure call differs at the end.
+  if (state.status !== 'bout_settle' && state.status !== 'bout_take_pending') {
     return fail('PASS_NOT_ALLOWED', 'Cannot say "бито" right now');
   }
   // Defender is not a thrower; their "pass" is meaningless here.
@@ -349,6 +431,7 @@ function reducePass(
     return fail('PASS_NOT_ALLOWED', 'Already passed');
   }
 
+  const phase = state.status;
   let next: GameState = {
     ...state,
     passedPlayerIds: [...state.passedPlayerIds, player.id],
@@ -364,10 +447,18 @@ function reducePass(
   );
   const allPassed = eligible.every((p) => next.passedPlayerIds.includes(p.id));
   if (allPassed) {
-    const { state: closed, events: closeEvents } = closeBoutBeaten(next);
-    events.push({ type: 'BoutEnded', outcome: 'beaten', boutNumber: state.boutNumber });
-    events.push(...closeEvents);
-    next = closed;
+    if (phase === 'bout_settle') {
+      const { state: closed, events: closeEvents } = closeBoutBeaten(next);
+      events.push({ type: 'BoutEnded', outcome: 'beaten', boutNumber: state.boutNumber });
+      events.push(...closeEvents);
+      next = closed;
+    } else {
+      // bout_take_pending — defender takes everything on the table.
+      const { state: closed, events: closeEvents } = closeBoutTaken(next);
+      events.push({ type: 'BoutEnded', outcome: 'taken', boutNumber: state.boutNumber });
+      events.push(...closeEvents);
+      next = closed;
+    }
   }
   return { ok: true, state: next, events };
 }
@@ -466,8 +557,14 @@ function reduceNoticeCheat(
     //   - no attacks left  -> attacker opens again (bout_attack)
     //   - some unbeaten    -> defender owes a beat   (bout_defense)
     //   - all beaten       -> wait for "пас"-es      (bout_settle)
+    //
+    // Exception: if the defender already said "беру" we stay in
+    // `bout_take_pending` — undoing a single cheat does not retract their
+    // decision to take.
     let nextStatus: GameState['status'];
-    if (next.table.attacks.length === 0) {
+    if (state.status === 'bout_take_pending' && next.table.attacks.length > 0) {
+      nextStatus = 'bout_take_pending';
+    } else if (next.table.attacks.length === 0) {
       nextStatus = 'bout_attack';
     } else if (tableHasUnbeaten(next)) {
       nextStatus = 'bout_defense';

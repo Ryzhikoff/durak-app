@@ -93,8 +93,9 @@ describe('refill order', () => {
 
 describe('PlayerOut events', () => {
   it('emits PlayerOut when a player ends a bout with empty hand and empty deck', () => {
-    // No deck, A defends with their only card and beats it, then everyone
-    // passes -> bout closes beaten -> A is finished (hand = 0, deck = 0).
+    // No deck, A defends with their only card and beats it; with cheating
+    // disabled the engine auto-closes the bout on the last beat — A is
+    // finished (hand = 0, deck = 0) and the game ends right there.
     const state = craftGame({
       players: [
         // A (defender) holds one trump.
@@ -116,13 +117,10 @@ describe('PlayerOut events', () => {
       attackEntryId: r1.state.table.attacks[0].id,
       defenseCardId: 'spades-14',
     });
-    if (!r2.ok) throw new Error();
-    // B passes; with only 2 players that's everyone non-defender.
-    const r3 = applyCommand(r2.state, { type: 'pass', playerId: 'B' });
-    expect(r3.ok).toBe(true);
-    if (!r3.ok) return;
+    expect(r2.ok).toBe(true);
+    if (!r2.ok) return;
     // GameEnded since only one player remains with cards.
-    const playerOut = r3.events.find((e) => e.type === 'PlayerOut');
+    const playerOut = r2.events.find((e) => e.type === 'PlayerOut');
     expect(playerOut).toBeDefined();
     if (playerOut && playerOut.type === 'PlayerOut') {
       expect(playerOut.playerId).toBe('A');
@@ -134,9 +132,9 @@ describe('PlayerOut events', () => {
 describe('draw scenario', () => {
   it('two players go out in the same bout closure → both placed, loserId=null', () => {
     // 2-player setup: both have a single card, deck empty. Attacker plays
-    // their last card, defender beats with their last card, then attacker
-    // passes (their hand is already empty so "pass" closes the bout). Both
-    // hands end up empty after the close.
+    // their last card, defender beats with their last card. With cheating
+    // disabled the engine auto-closes the bout on the final beat — both
+    // hands end up empty after the close, the game ends as a draw.
     const state = craftGame({
       players: [
         { id: 'A', hand: [card('hearts', 6)] },
@@ -156,14 +154,10 @@ describe('draw scenario', () => {
       attackEntryId: r1.state.table.attacks[0].id,
       defenseCardId: 'hearts-10',
     });
-    if (!r2.ok) throw new Error();
-    // A passes; bout closes beaten; both A and B have empty hands and the
-    // deck is empty -> they are both finished -> game ends as a draw.
-    const r3 = applyCommand(r2.state, { type: 'pass', playerId: 'A' });
-    expect(r3.ok).toBe(true);
-    if (!r3.ok) return;
-    expect(r3.state.status).toBe('game_over');
-    const ended = r3.events.find((e) => e.type === 'GameEnded');
+    expect(r2.ok).toBe(true);
+    if (!r2.ok) return;
+    expect(r2.state.status).toBe('game_over');
+    const ended = r2.events.find((e) => e.type === 'GameEnded');
     expect(ended).toBeDefined();
     if (ended && ended.type === 'GameEnded') {
       expect(ended.loserId).toBeNull();

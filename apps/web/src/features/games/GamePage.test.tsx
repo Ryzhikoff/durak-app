@@ -126,19 +126,24 @@ function renderWithProviders(ui: React.ReactNode) {
 }
 
 describe('GamePage smoke', () => {
-  it('renders the table, opponent and the player hand', async () => {
+  it('renders the table, opponent, status bar and the player hand', async () => {
     renderWithProviders(<GamePage />);
-    // Banner shows current attacker.
+    // Header chip + status bar both show the attacking banner.
     expect(
-      await screen.findByText(/Ходит\s+Me/i),
-    ).toBeInTheDocument();
+      (await screen.findAllByText(/Ходит\s+Me/i)).length,
+    ).toBeGreaterThan(0);
     // Trump label is present.
     expect(screen.getByText(/Козырь/i)).toBeInTheDocument();
     // Table container rendered.
     expect(screen.getByTestId('game-table')).toBeInTheDocument();
+    // New status bar replaces the old toast feed.
+    expect(screen.getByTestId('game-status-bar')).toBeInTheDocument();
     // Opponent rendered.
     expect(screen.getByTestId('opponent-u-opp')).toBeInTheDocument();
-    // Own hand rendered with both cards.
+    // Own hand rendered.
     expect(screen.getByTestId('player-hand')).toBeInTheDocument();
+    // Each hand card is a draggable wrapper.
+    expect(screen.getByTestId('hand-card-c1')).toBeInTheDocument();
+    expect(screen.getByTestId('hand-card-c2')).toBeInTheDocument();
   });
 });

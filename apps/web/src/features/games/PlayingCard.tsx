@@ -46,19 +46,16 @@ interface PlayingCardProps {
   className?: string;
   /** Visually-only highlighted (selected for action). */
   selected?: boolean;
-  /** Visually faded — eg. not legal to play right now. */
+  /** Visually faded — eg. dragging source ghost in the hand. */
   dimmed?: boolean;
-  /** Clickable affordance — adds hover/focus styling. */
-  interactive?: boolean;
-  onClick?: () => void;
   /** Accessible label override. */
   ariaLabel?: string;
 }
 
 /**
  * Pure presentational card face. Works for both `standard` cards (rank+suit)
- * and jokers (color label). The component is intentionally style-only —
- * interactivity is wired by the parent.
+ * and jokers (color label). The component is style-only — interactivity (drag,
+ * drop) is wired by parents via `@dnd-kit`.
  */
 export function PlayingCard({
   card,
@@ -66,8 +63,6 @@ export function PlayingCard({
   className,
   selected,
   dimmed,
-  interactive,
-  onClick,
   ariaLabel,
 }: PlayingCardProps) {
   const base = clsx(
@@ -76,10 +71,7 @@ export function PlayingCard({
     selected
       ? 'border-accent ring-2 ring-accent -translate-y-1'
       : 'border-slate-300',
-    dimmed && !selected ? 'opacity-50' : '',
-    interactive
-      ? 'cursor-pointer hover:-translate-y-1 transition-transform'
-      : '',
+    dimmed && !selected ? 'opacity-40' : '',
     className,
   );
 
@@ -90,18 +82,6 @@ export function PlayingCard({
       <JokerFace color={card.color} />
     );
 
-  if (interactive) {
-    return (
-      <button
-        type="button"
-        onClick={onClick}
-        className={base}
-        aria-label={ariaLabel ?? cardLabel(card)}
-      >
-        {content}
-      </button>
-    );
-  }
   return (
     <div className={base} role="img" aria-label={ariaLabel ?? cardLabel(card)}>
       {content}

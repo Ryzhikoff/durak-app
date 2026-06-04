@@ -42,15 +42,15 @@ export function Modal({
   const autoTitleId = useId();
   const resolvedTitleId = titleId ?? (title ? autoTitleId : undefined);
 
+  // Initial focus + body scroll lock + focus restore. Runs ONLY on open transition,
+  // not when parent re-renders (e.g. on each keystroke that updates form state).
   useEffect(() => {
     if (!open) return;
 
     previouslyFocused.current = document.activeElement as HTMLElement | null;
 
     const container = containerRef.current;
-    // Initial focus: first focusable inside, or the container itself.
-    const focusInitial = () => {
-      if (!container) return;
+    if (container) {
       const focusables = container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
       const first = focusables.item(0);
       if (first) {
@@ -58,14 +58,28 @@ export function Modal({
       } else {
         container.focus();
       }
+    }
+
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = '';
+      const prev = previouslyFocused.current;
+      if (prev && typeof prev.focus === 'function') {
+        prev.focus();
+      }
     };
-    focusInitial();
+  }, [open]);
+
+  // Keyboard handler (Escape + Tab trap). Re-binds when onClose/dismissible change.
+  useEffect(() => {
+    if (!open) return;
 
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (dismissible) onClose();
         return;
       }
+      const container = containerRef.current;
       if (e.key === 'Tab' && container) {
         const focusables = Array.from(
           container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
@@ -91,15 +105,8 @@ export function Modal({
     };
 
     document.addEventListener('keydown', handler);
-    document.body.style.overflow = 'hidden';
     return () => {
       document.removeEventListener('keydown', handler);
-      document.body.style.overflow = '';
-      // Restore focus when modal closes/unmounts.
-      const prev = previouslyFocused.current;
-      if (prev && typeof prev.focus === 'function') {
-        prev.focus();
-      }
     };
   }, [open, onClose, dismissible]);
 

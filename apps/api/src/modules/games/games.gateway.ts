@@ -13,7 +13,13 @@ import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import type { Server, Socket } from 'socket.io';
 import type { DomainEvent, GameCommand, GameState } from '@durak/game-engine';
-import { GAME_EVENTS, GAME_NAMESPACE } from '@durak/shared-types';
+import {
+  CHAT_MESSAGE_MAX_LENGTH,
+  GAME_EVENTS,
+  GAME_NAMESPACE,
+  type ChatMessage,
+  type ChatReactionUpdate,
+} from '@durak/shared-types';
 import { SESSION_COOKIE_NAME } from '../auth/auth.constants';
 import { SessionService } from '../auth/session.service';
 import { GamesService } from './games.service';
@@ -67,6 +73,8 @@ export class GamesGateway
     this.games.setEventBus({
       gameUpdated: (state, events) => this.broadcastUpdate(state, events, false),
       gameEnded: (state, events) => this.broadcastUpdate(state, events, true),
+      chatMessage: (gameId, message) => this.broadcastChatMessage(gameId, message),
+      chatReaction: (gameId, update) => this.broadcastChatReaction(gameId, update),
     });
   }
 
@@ -113,7 +121,13 @@ export class GamesGateway
   async onSubscribe(
     @ConnectedSocket() client: Socket,
     @MessageBody() body: { gameId?: string },
-  ): Promise<Ack<{ state: ClientGameState; recentEvents: DomainEvent[] }>> {
+  ): Promise<
+    Ack<{
+      state: ClientGameState;
+      recentEvents: DomainEvent[];
+      chatHistory: ChatMessage[];
+    }>
+  > {
     return this.run(async () => {
       const userId = this.requireUserId(client);
       const gameId = this.requireGameId(body);
@@ -123,11 +137,76 @@ export class GamesGateway
       }
       const profiles = await this.games.getProfiles(gameId);
       const recentEvents = await this.games.getRecentEvents(gameId);
+      // Chat history piggybacks on the initial subscribe so the panel can hydrate
+      // without a second round-trip. Cheap: it's already a single LRANGE.
+      const chatHistory = await this.games.fetchChatHistory(gameId, userId);
       await client.join(gameRoom(gameId));
       const snapshot = redactForPlayer(state, userId, profiles);
       // Push initial state straight to this socket (matches the lobbies pattern).
       client.emit(GAME_EVENTS.state, { state: snapshot });
-      return { state: snapshot, recentEvents };
+      return { state: snapshot, recentEvents, chatHistory };
+    });
+  }
+
+  @SubscribeMessage(GAME_EVENTS.chatSend)
+  async onChatSend(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { gameId?: string; text?: string; replyToId?: string },
+  ): Promise<Ack<{ message: ChatMessage }>> {
+    return this.run(async () => {
+      const userId = this.requireUserId(client);
+      const gameId = this.requireGameId(body);
+      const text = typeof body?.text === 'string' ? body.text : '';
+      // Cheap pre-validation so a misuse never even reaches Redis. The service
+      // re-validates after trim — this is just a fast-fail gate.
+      if (text.length > CHAT_MESSAGE_MAX_LENGTH * 4) {
+        throw new GatewayError('CHAT_TEXT_INVALID', 'Message too long');
+      }
+      const replyToId =
+        typeof body?.replyToId === 'string' &&
+        body.replyToId.length > 0 &&
+        body.replyToId.length <= 64
+          ? body.replyToId
+          : undefined;
+      const message = await this.games.appendChatMessage(gameId, userId, text, replyToId);
+      return { message };
+    });
+  }
+
+  @SubscribeMessage(GAME_EVENTS.chatReact)
+  async onChatReact(
+    @ConnectedSocket() client: Socket,
+    @MessageBody()
+    body: { gameId?: string; messageId?: string; emoji?: string | null },
+  ): Promise<Ack<ChatReactionUpdate>> {
+    return this.run(async () => {
+      const userId = this.requireUserId(client);
+      const gameId = this.requireGameId(body);
+      const messageId = typeof body?.messageId === 'string' ? body.messageId.trim() : '';
+      if (!messageId || messageId.length > 64) {
+        throw new GatewayError('BAD_REQUEST', 'messageId is required');
+      }
+      const emoji =
+        typeof body?.emoji === 'string' && body.emoji.length > 0
+          ? body.emoji
+          : body?.emoji === null
+            ? null
+            : null;
+      const update = await this.games.reactToMessage(gameId, userId, messageId, emoji);
+      return update;
+    });
+  }
+
+  @SubscribeMessage(GAME_EVENTS.chatFetch)
+  async onChatFetch(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { gameId?: string },
+  ): Promise<Ack<{ messages: ChatMessage[] }>> {
+    return this.run(async () => {
+      const userId = this.requireUserId(client);
+      const gameId = this.requireGameId(body);
+      const messages = await this.games.fetchChatHistory(gameId, userId);
+      return { messages };
     });
   }
 
@@ -196,6 +275,31 @@ export class GamesGateway
     // Public events ride the room broadcast.
     if (events.length > 0) {
       this.server.to(room).emit(GAME_EVENTS.events, { events });
+    }
+  }
+
+  /**
+   * Fan out a new chat message to every socket currently in the game's room.
+   * The sender receives their own message via this broadcast too, so the UI
+   * has a single ingestion path.
+   */
+  private broadcastChatMessage(gameId: string, message: ChatMessage): void {
+    try {
+      this.server.to(gameRoom(gameId)).emit(GAME_EVENTS.chatMessage, { message });
+    } catch (err) {
+      this.logger.warn({ err, gameId }, 'failed to broadcast chat message');
+    }
+  }
+
+  /**
+   * Fan out a reaction change to every socket in the room. Clients merge it
+   * into their local `message.reactions` map without re-fetching history.
+   */
+  private broadcastChatReaction(gameId: string, update: ChatReactionUpdate): void {
+    try {
+      this.server.to(gameRoom(gameId)).emit(GAME_EVENTS.chatReaction, update);
+    } catch (err) {
+      this.logger.warn({ err, gameId }, 'failed to broadcast chat reaction');
     }
   }
 

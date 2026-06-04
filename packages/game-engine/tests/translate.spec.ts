@@ -38,6 +38,118 @@ describe('translate', () => {
     });
   });
 
+  it('resets the bout cap to the new defender hand size after translate', () => {
+    // Regression: a 4-card translate to a defender with only 2 cards must
+    // not allow more attacks than the new defender can beat. Previously
+    // attacksRemaining stayed clamped to the ORIGINAL defender's hand size
+    // captured at bout start, so a translate target with a smaller hand
+    // could be over-thrown.
+    const state = craftGame({
+      players: [
+        // A is the attacker with several throw-ins of the same rank.
+        {
+          id: 'A',
+          hand: [
+            card('hearts', 6),
+            card('clubs', 6),
+            card('diamonds', 6),
+            card('spades', 9),
+          ],
+        },
+        // B starts as defender with many cards (so the original cap is big).
+        {
+          id: 'B',
+          hand: [
+            card('hearts', 7),
+            card('hearts', 8),
+            card('hearts', 9),
+            card('hearts', 10),
+            card('hearts', 11),
+            card('hearts', 12),
+          ],
+        },
+        // C is the translate target — only 2 cards (one of which is the
+        // translate card itself, leaving 1 in hand after translate).
+        { id: 'C', hand: [card('spades', 6), card('spades', 10)] },
+      ],
+      attackerId: 'A',
+      defenderId: 'B',
+      trumpSuit: 'clubs',
+      boutNumber: 2,
+      initialDefenderHandSize: 6,
+      settings: { cheatingEnabled: false, attackerScope: 'all', firstBoutLimit: 6 },
+    });
+    const r1 = applyCommand(state, { type: 'attack', playerId: 'A', cardId: 'hearts-6' });
+    if (!r1.ok) throw new Error();
+    // B translates to C using their own 6.
+    // (C doesn't translate — the engine only allows the current defender to
+    // translate, and B's translate moves the defender role to C.)
+    const r2 = applyCommand(r1.state, {
+      type: 'attack',
+      playerId: 'A',
+      cardId: 'clubs-6',
+    });
+    if (!r2.ok) throw new Error();
+    // For simplicity skip the translate chain and verify the field directly
+    // via a single B translate next.
+    // B can translate because the table is all-same-rank (two 6s).
+    // Actually translate only allowed when ALL attacks unbeaten and same rank.
+    // With 2 sixes on the table it still works.
+    const r3 = applyCommand(r2.state, {
+      type: 'translate',
+      playerId: 'B',
+      cardId: 'hearts-7',
+    });
+    // The 7 doesn't match rank 6, so this translate is rejected.
+    expect(r3.ok).toBe(false);
+    // Use the correct translate setup: rewind, A throws one 6, then B
+    // translates with their own 6.
+    const setup = craftGame({
+      players: [
+        { id: 'A', hand: [card('hearts', 6), card('clubs', 6), card('diamonds', 6)] },
+        {
+          id: 'B',
+          hand: [
+            card('spades', 6),
+            card('hearts', 7),
+            card('hearts', 8),
+            card('hearts', 9),
+            card('hearts', 10),
+            card('hearts', 11),
+          ],
+        },
+        { id: 'C', hand: [card('spades', 10), card('spades', 11)] }, // 2 cards
+      ],
+      attackerId: 'A',
+      defenderId: 'B',
+      trumpSuit: 'clubs',
+      boutNumber: 2,
+      initialDefenderHandSize: 6,
+      settings: { cheatingEnabled: false, attackerScope: 'all', firstBoutLimit: 6 },
+    });
+    const s1 = applyCommand(setup, { type: 'attack', playerId: 'A', cardId: 'hearts-6' });
+    if (!s1.ok) throw new Error();
+    // B translates to C with spades-6.
+    const s2 = applyCommand(s1.state, {
+      type: 'translate',
+      playerId: 'B',
+      cardId: 'spades-6',
+    });
+    if (!s2.ok) throw new Error(`translate failed: ${s2.code}`);
+    // After translate: C is the new defender with 2 cards (spades-10, spades-11).
+    expect(s2.state.players[s2.state.currentDefenderIndex].id).toBe('C');
+    expect(s2.state.initialDefenderHandSize).toBe(2);
+    // Table has 2 attacks (the original 6 and the translate-6). Cap = 2.
+    // A tries to throw another 6 — exceeds C's hand-bound cap → rejected.
+    const s3 = applyCommand(s2.state, {
+      type: 'attack',
+      playerId: 'A',
+      cardId: 'clubs-6',
+    });
+    expect(s3.ok).toBe(false);
+    if (!s3.ok) expect(s3.code).toBe('ATTACK_LIMIT_REACHED');
+  });
+
   it('chained translates: 4 players translate the same rank around the table', () => {
     // A attacks 6H; B translates 6S; C translates 6D; D ends as defender
     // (next seat after C).
