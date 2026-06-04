@@ -29,6 +29,13 @@ import {
   type GameUserProfile,
   type GameUserProfiles,
 } from './game-redactor';
+import {
+  collectMetrics,
+  type MetricDelta,
+  type MetricField,
+  type PendingIllegalEntry,
+} from './metrics-collector';
+import { updateRatings, conservativeRating } from './rating-updater';
 
 /** Game-state key prefix in Redis. Holds a JSON-encoded {@link GameState}. */
 export const GAME_KEY_PREFIX = 'game:';
@@ -59,6 +66,14 @@ export const GAME_TTL_SECONDS = 60 * 60 * 24;
 export const GAME_OVER_TTL_SECONDS = 60 * 30;
 /** How many of the most recent domain events we keep per game. */
 export const GAME_RECENT_EVENTS_CAP = 50;
+/** Per-game metrics HASH suffix — `game:<id>:metrics:<userId>`. */
+export const GAME_METRICS_SUFFIX = ':metrics:';
+/** Per-game pending-illegal book HASH — `game:<id>:illegal`. */
+export const GAME_ILLEGAL_SUFFIX = ':illegal';
+/** Per-game start timestamp key — `game:<id>:startedAt` (ms epoch). */
+export const GAME_STARTED_AT_SUFFIX = ':startedAt';
+/** Per-game total bouts counter — `game:<id>:totalBouts` (int). */
+export const GAME_TOTAL_BOUTS_SUFFIX = ':totalBouts';
 
 const LOCK_KEY_PREFIX = 'game-lock:';
 const LOCK_TTL_MS = 5_000;
@@ -91,6 +106,86 @@ export interface GamesPrismaUserSlice {
         customCardBackUrl: string | null;
       }>
     >;
+  };
+}
+
+/**
+ * Loose prisma surface needed for finalization. We keep this typed as
+ * `unknown` operations via the `$transaction` callback to dodge the cost of
+ * mirroring the entire Prisma model surface — finalization runs against the
+ * real PrismaClient at runtime.
+ */
+export interface GamesPrismaFinalizeSlice {
+  ratingConfig: {
+    findUnique(args: { where: { id: string } }): Promise<{
+      initialMu: number;
+      initialSigma: number;
+      beta: number;
+      tau: number;
+      drawProbability: number;
+    } | null>;
+  };
+  user: {
+    findMany(args: {
+      where: { id: { in: string[] } };
+      select: {
+        id: true;
+        nickname: true;
+        avatarUrl: true;
+        trueskillMu: true;
+        trueskillSigma: true;
+      };
+    }): Promise<
+      Array<{
+        id: string;
+        nickname: string;
+        avatarUrl: string | null;
+        trueskillMu: number;
+        trueskillSigma: number;
+      }>
+    >;
+  };
+  $transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T>;
+}
+
+/**
+ * Mirror of the Prisma transactional client surface we touch during
+ * finalize. Kept as a loose shape so swapping Prisma versions doesn't break
+ * the type contract — the underlying client validates at runtime.
+ */
+interface TxClient {
+  game: {
+    findUnique(args: {
+      where: { id: string };
+      select: { id: true };
+    }): Promise<{ id: string } | null>;
+    create(args: {
+      data: {
+        id: string;
+        settingsJson: object;
+        startedAt: Date;
+        finishedAt: Date;
+        durationSec: number;
+        loserId: string | null;
+        totalBouts: number;
+      };
+    }): Promise<unknown>;
+  };
+  gameParticipant: {
+    create(args: { data: Record<string, unknown> }): Promise<unknown>;
+  };
+  ratingHistory: {
+    create(args: { data: Record<string, unknown> }): Promise<unknown>;
+  };
+  user: {
+    update(args: {
+      where: { id: string };
+      data: {
+        trueskillMu: number;
+        trueskillSigma: number;
+        gamesPlayed: { increment: number };
+      };
+    }): Promise<unknown>;
   };
 }
 
@@ -146,6 +241,22 @@ function chatKey(id: string): string {
 
 function chatReactionsKey(id: string): string {
   return `${GAME_KEY_PREFIX}${id}${GAME_CHAT_REACTIONS_SUFFIX}`;
+}
+
+function metricsKey(gameId: string, userId: string): string {
+  return `${GAME_KEY_PREFIX}${gameId}${GAME_METRICS_SUFFIX}${userId}`;
+}
+
+function illegalKey(gameId: string): string {
+  return `${GAME_KEY_PREFIX}${gameId}${GAME_ILLEGAL_SUFFIX}`;
+}
+
+function startedAtKey(gameId: string): string {
+  return `${GAME_KEY_PREFIX}${gameId}${GAME_STARTED_AT_SUFFIX}`;
+}
+
+function totalBoutsKey(gameId: string): string {
+  return `${GAME_KEY_PREFIX}${gameId}${GAME_TOTAL_BOUTS_SUFFIX}`;
 }
 
 function reactionField(messageId: string, userId: string): string {
@@ -371,8 +482,30 @@ export class GamesService {
         });
       }
       const { state: nextState, events } = result;
+      // Collect per-command metric deltas and pending-illegal book diff. We
+      // need the state BEFORE the command for legality checks, so we do this
+      // before any persistence.
+      const pendingIllegal = await this.loadPendingIllegal(gameId);
+      const collected = collectMetrics({
+        stateBefore: state,
+        command,
+        events,
+        pendingIllegal,
+      });
       await this.persistMutation(nextState, events);
+      await this.applyMetricsDiff(gameId, collected);
       if (nextState.status === 'game_over') {
+        // Finalization writes to Postgres (game/participants/rating-history)
+        // and updates User.trueskill*. We retry transient failures (Postgres
+        // hiccups) with exponential back-off; the find-unique guard inside
+        // finalizeGame keeps the operation idempotent across retries. On
+        // permanent failure we record the gameId to a Redis list so an
+        // operator can replay later — silent data loss is unacceptable here.
+        try {
+          await this.finalizeGameWithRetry(nextState);
+        } catch (err) {
+          this.logger.error({ err, gameId: nextState.id }, 'Failed to finalize completed game');
+        }
         this.bus.gameEnded(nextState, events);
       } else {
         this.bus.gameUpdated(nextState, events);
@@ -631,14 +764,18 @@ export class GamesService {
   }
 
   private async persistNew(state: GameState, profiles: GameUserProfiles): Promise<void> {
+    const now = Date.now();
     const tx = this.redis.client.multi();
     tx.set(gameKey(state.id), JSON.stringify(state), 'EX', GAME_TTL_SECONDS);
     tx.set(profilesKey(state.id), JSON.stringify(profiles), 'EX', GAME_TTL_SECONDS);
+    // Pin the start time so finalization can compute durationSec without
+    // depending on bout 1's exact create-time. Stored as ms epoch string.
+    tx.set(startedAtKey(state.id), String(now), 'EX', GAME_TTL_SECONDS);
     // Empty events list — created lazily on the first mutation. Skip here.
     for (const p of state.players) {
       tx.set(userInGameKey(p.id), state.id, 'EX', GAME_TTL_SECONDS);
     }
-    tx.zadd(GAME_INDEX_KEY, Date.now(), state.id);
+    tx.zadd(GAME_INDEX_KEY, now, state.id);
     await tx.exec();
   }
 
@@ -648,9 +785,17 @@ export class GamesService {
     const tx = this.redis.client.multi();
     tx.set(gameKey(state.id), JSON.stringify(state), 'EX', ttl);
     tx.expire(profilesKey(state.id), ttl);
+    tx.expire(startedAtKey(state.id), ttl);
+    // Track total bouts for Game.totalBouts. The engine bumps boutNumber in
+    // `startNewBout` AFTER each bout closes, so the current bout-1 + 1 = total
+    // bouts ever played. We bump on BoutEnded so the counter survives reads.
     for (const ev of events) {
       tx.rpush(eventsKey(state.id), JSON.stringify(ev));
+      if (ev.type === 'BoutEnded') {
+        tx.incr(totalBoutsKey(state.id));
+      }
     }
+    tx.expire(totalBoutsKey(state.id), ttl);
     // Cap the events list, oldest dropped.
     tx.ltrim(eventsKey(state.id), -GAME_RECENT_EVENTS_CAP, -1);
     tx.expire(eventsKey(state.id), ttl);
@@ -670,6 +815,363 @@ export class GamesService {
       }
     }
     await tx.exec();
+  }
+
+  // -------- metrics / illegal book --------
+
+  /**
+   * Load the pending-illegal book for this game. The book is a small HASH
+   * keyed by entryId → cheaterId (one entry per outstanding illegal play).
+   */
+  private async loadPendingIllegal(gameId: string): Promise<PendingIllegalEntry[]> {
+    const raw = await this.redis.client.hgetall(illegalKey(gameId));
+    const out: PendingIllegalEntry[] = [];
+    for (const [entryId, cheaterId] of Object.entries(raw)) {
+      if (typeof cheaterId === 'string' && cheaterId.length > 0) {
+        out.push({ entryId, cheaterId });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Apply the collector's diff: bump per-(game,user) HINCRBY counters and
+   * update the pending-illegal book. Performed in a single pipeline so a
+   * concurrent finalize never sees a half-applied state.
+   */
+  private async applyMetricsDiff(
+    gameId: string,
+    diff: {
+      deltas: MetricDelta[];
+      addIllegal: PendingIllegalEntry[];
+      dropIllegalEntryIds: string[];
+      clearAllIllegal: boolean;
+    },
+  ): Promise<void> {
+    if (
+      diff.deltas.length === 0 &&
+      diff.addIllegal.length === 0 &&
+      diff.dropIllegalEntryIds.length === 0 &&
+      !diff.clearAllIllegal
+    ) {
+      return;
+    }
+    const tx = this.redis.client.multi();
+    const touchedUsers = new Set<string>();
+    for (const d of diff.deltas) {
+      touchedUsers.add(d.userId);
+      tx.hincrby(metricsKey(gameId, d.userId), d.field, d.delta);
+    }
+    for (const uid of touchedUsers) {
+      tx.expire(metricsKey(gameId, uid), GAME_TTL_SECONDS);
+    }
+    if (diff.addIllegal.length > 0) {
+      for (const it of diff.addIllegal) {
+        tx.hset(illegalKey(gameId), it.entryId, it.cheaterId);
+      }
+      tx.expire(illegalKey(gameId), GAME_TTL_SECONDS);
+    }
+    if (diff.dropIllegalEntryIds.length > 0) {
+      for (const id of diff.dropIllegalEntryIds) {
+        tx.hdel(illegalKey(gameId), id);
+      }
+    }
+    if (diff.clearAllIllegal) {
+      tx.del(illegalKey(gameId));
+    }
+    await tx.exec();
+  }
+
+  /**
+   * Read per-user metrics HASHes back from Redis. Missing keys return zeros
+   * so the resulting record is safe to write straight into Postgres.
+   */
+  private async readMetrics(
+    gameId: string,
+    userIds: string[],
+  ): Promise<Record<string, Record<MetricField, number>>> {
+    const fields: MetricField[] = [
+      'attacksMade',
+      'beatsMade',
+      'translatesMade',
+      'takesAsked',
+      'cardsTaken',
+      'boutsAttacked',
+      'boutsDefended',
+      'cheatAttemptedTotal',
+      'cheatCaught',
+      'cheatEscaped',
+      'noticesIssued',
+      'noticesCorrect',
+      'noticesWrong',
+    ];
+    const out: Record<string, Record<MetricField, number>> = {};
+    for (const uid of userIds) {
+      const raw = await this.redis.client.hgetall(metricsKey(gameId, uid));
+      const row: Record<MetricField, number> = {
+        attacksMade: 0,
+        beatsMade: 0,
+        translatesMade: 0,
+        takesAsked: 0,
+        cardsTaken: 0,
+        boutsAttacked: 0,
+        boutsDefended: 0,
+        cheatAttemptedTotal: 0,
+        cheatCaught: 0,
+        cheatEscaped: 0,
+        noticesIssued: 0,
+        noticesCorrect: 0,
+        noticesWrong: 0,
+      };
+      for (const f of fields) {
+        const v = raw[f];
+        if (typeof v === 'string') {
+          const n = Number.parseInt(v, 10);
+          if (Number.isFinite(n)) row[f] = n;
+        }
+      }
+      out[uid] = row;
+    }
+    return out;
+  }
+
+  // -------- finalization --------
+
+  /** Maximum finalize attempts before we record the failure in Redis. */
+  private static readonly FINALIZE_MAX_ATTEMPTS = 3;
+  /** Redis list capturing finalize failures for operator-driven recovery. */
+  static readonly FAILED_FINALIZATIONS_KEY = 'games:failed_finalizations';
+
+  /**
+   * Retry wrapper around {@link finalizeGame}. Exponential back-off
+   * (500ms → 1s → 2s). The find-unique guard inside finalizeGame keeps it
+   * safe to call multiple times: if the first attempt half-completed, the
+   * retry finds the Game row already there and exits as a no-op. After
+   * `FINALIZE_MAX_ATTEMPTS` we surface the failure in a dedicated Redis list
+   * (`games:failed_finalizations`) so an operator can replay it manually.
+   */
+  async finalizeGameWithRetry(state: GameState, attempt = 1): Promise<void> {
+    try {
+      await this.finalizeGame(state);
+    } catch (err) {
+      if (attempt >= GamesService.FINALIZE_MAX_ATTEMPTS) {
+        this.logger.error(
+          { err, gameId: state.id, attempt },
+          'finalizeGame: max retries exceeded, recording for manual recovery',
+        );
+        try {
+          await this.redis.client.rpush(
+            GamesService.FAILED_FINALIZATIONS_KEY,
+            JSON.stringify({
+              gameId: state.id,
+              error: err instanceof Error ? err.message : String(err),
+              at: new Date().toISOString(),
+            }),
+          );
+        } catch (pushErr) {
+          this.logger.error(
+            { err: pushErr, gameId: state.id },
+            'failed to record finalize failure in Redis',
+          );
+        }
+        throw err;
+      }
+      const delay = 500 * Math.pow(2, attempt - 1);
+      this.logger.warn({ err, gameId: state.id, attempt, delay }, 'finalizeGame failed; retrying');
+      await sleep(delay);
+      return this.finalizeGameWithRetry(state, attempt + 1);
+    }
+  }
+
+  /**
+   * Persist a completed game to Postgres exactly once. Idempotent: if the
+   * game id already exists, we skip silently so a duplicate finalize (e.g.
+   * via a redelivered ws command) is harmless. Updates each participant's
+   * `User.trueskill*` + `User.gamesPlayed` in the same transaction so the
+   * rating screen is always consistent with what's saved.
+   */
+  async finalizeGame(state: GameState): Promise<void> {
+    if (state.status !== 'game_over') return;
+    if (state.players.length === 0) return;
+    const prisma = this.prisma as unknown as GamesPrismaFinalizeSlice;
+
+    const playerIds = state.players.map((p) => p.id);
+    const [config, users, profiles, metrics, startedAtMs, totalBoutsStr] = await Promise.all([
+      prisma.ratingConfig.findUnique({ where: { id: 'singleton' } }),
+      prisma.user.findMany({
+        where: { id: { in: playerIds } },
+        select: {
+          id: true,
+          nickname: true,
+          avatarUrl: true,
+          trueskillMu: true,
+          trueskillSigma: true,
+        },
+      }),
+      this.getProfiles(state.id),
+      this.readMetrics(state.id, playerIds),
+      this.redis.client.get(startedAtKey(state.id)),
+      this.redis.client.get(totalBoutsKey(state.id)),
+    ]);
+
+    const cfg = {
+      beta: config?.beta ?? 4.166667,
+      tau: config?.tau ?? 0.083333,
+      drawProbability: config?.drawProbability ?? 0.1,
+    };
+    const usersById = new Map(users.map((u) => [u.id, u]));
+
+    // Build placements from finishedPlayers + loserPlayerId. finishedPlayers
+    // is in finish order; the durak gets the last place. Draw: loserId=null
+    // means everyone finished in the same bout — give them all rank 1.
+    const placementsMap = new Map<string, number>();
+    if (state.loserPlayerId == null) {
+      for (const p of state.players) placementsMap.set(p.id, 1);
+    } else {
+      let nextPlace = 1;
+      for (const id of state.finishedPlayers) {
+        placementsMap.set(id, nextPlace);
+        nextPlace++;
+      }
+      placementsMap.set(state.loserPlayerId, nextPlace);
+    }
+
+    // Skip players without a User row (e.g. soft-deleted). Their absence
+    // doesn't break the game, but openskill needs every input present.
+    const ratable = state.players
+      .filter((p) => usersById.has(p.id))
+      .map((p) => {
+        const u = usersById.get(p.id)!;
+        return {
+          userId: p.id,
+          muBefore: u.trueskillMu,
+          sigmaBefore: u.trueskillSigma,
+          place: placementsMap.get(p.id) ?? state.players.length,
+        };
+      });
+
+    if (ratable.length === 0) {
+      this.logger.warn({ gameId: state.id }, 'finalize: no rateable users; skipping');
+      return;
+    }
+
+    // openskill's PlackettLuce needs at least two teams to compute a meaningful
+    // update. If only one rateable participant remains (the rest are
+    // soft-deleted), skip the rating computation but still persist the Game
+    // and Participant rows so the history is complete.
+    const outcomes = ratable.length >= 2 ? updateRatings(ratable, cfg) : [];
+    const outcomesById = new Map(outcomes.map((o) => [o.userId, o]));
+
+    const startedAt = startedAtMs ? new Date(Number.parseInt(startedAtMs, 10)) : new Date();
+    const finishedAt = new Date();
+    const durationSec = Math.max(
+      0,
+      Math.round((finishedAt.getTime() - startedAt.getTime()) / 1000),
+    );
+    const totalBouts = totalBoutsStr ? Number.parseInt(totalBoutsStr, 10) : state.boutNumber - 1;
+
+    const settingsJson = state.settings;
+
+    // Single transaction: insert Game, all GameParticipants, all
+    // RatingHistory rows, and bump each User's trueskill + gamesPlayed.
+    await prisma.$transaction(async (tx) => {
+      const t = tx as unknown as TxClient;
+      // Idempotency: if the game id is already there, do nothing.
+      const exists = await t.game.findUnique({ where: { id: state.id }, select: { id: true } });
+      if (exists) return;
+
+      await t.game.create({
+        data: {
+          id: state.id,
+          settingsJson: settingsJson as unknown as object,
+          startedAt,
+          finishedAt,
+          durationSec,
+          loserId: state.loserPlayerId,
+          totalBouts,
+        },
+      });
+
+      for (let i = 0; i < state.players.length; i++) {
+        const p = state.players[i];
+        const u = usersById.get(p.id);
+        if (!u) continue; // drop placement for missing users — defensive
+        const place = placementsMap.get(p.id) ?? state.players.length;
+        const isWinner = place === 1;
+        const isLoser = state.loserPlayerId === p.id;
+        const outcome = outcomesById.get(p.id);
+        const muBefore = u.trueskillMu;
+        const sigmaBefore = u.trueskillSigma;
+        const muAfter = outcome?.muAfter ?? muBefore;
+        const sigmaAfter = outcome?.sigmaAfter ?? sigmaBefore;
+        const deltaDisplay =
+          outcome?.deltaDisplay ??
+          conservativeRating(muAfter, sigmaAfter) - conservativeRating(muBefore, sigmaBefore);
+        const m = metrics[p.id] ?? null;
+        const profile = profiles[p.id];
+        await t.gameParticipant.create({
+          data: {
+            gameId: state.id,
+            userId: p.id,
+            place,
+            seatIndex: i,
+            isWinner,
+            isLoser,
+            muBefore,
+            sigmaBefore,
+            muAfter,
+            sigmaAfter,
+            deltaDisplay,
+            nicknameSnapshot: profile?.nickname ?? u.nickname,
+            avatarUrlSnapshot: profile?.avatarUrl ?? u.avatarUrl ?? null,
+            attacksMade: m?.attacksMade ?? 0,
+            beatsMade: m?.beatsMade ?? 0,
+            translatesMade: m?.translatesMade ?? 0,
+            takesAsked: m?.takesAsked ?? 0,
+            cardsTaken: m?.cardsTaken ?? 0,
+            boutsAttacked: m?.boutsAttacked ?? 0,
+            boutsDefended: m?.boutsDefended ?? 0,
+            cheatAttemptedTotal: m?.cheatAttemptedTotal ?? 0,
+            cheatCaught: m?.cheatCaught ?? 0,
+            cheatEscaped: m?.cheatEscaped ?? 0,
+            noticesIssued: m?.noticesIssued ?? 0,
+            noticesCorrect: m?.noticesCorrect ?? 0,
+            noticesWrong: m?.noticesWrong ?? 0,
+          },
+        });
+        await t.ratingHistory.create({
+          data: {
+            userId: p.id,
+            gameId: state.id,
+            muBefore,
+            sigmaBefore,
+            muAfter,
+            sigmaAfter,
+            deltaDisplay,
+          },
+        });
+        await t.user.update({
+          where: { id: p.id },
+          data: {
+            trueskillMu: muAfter,
+            trueskillSigma: sigmaAfter,
+            gamesPlayed: { increment: 1 },
+          },
+        });
+      }
+    });
+
+    // Cleanup Redis side-state. Game state + chat live on GAME_OVER_TTL so a
+    // returning client still sees the final board — we only purge what's
+    // exclusively the metrics rail.
+    const cleanup = this.redis.client.multi();
+    cleanup.del(illegalKey(state.id));
+    cleanup.del(startedAtKey(state.id));
+    cleanup.del(totalBoutsKey(state.id));
+    for (const id of playerIds) {
+      cleanup.del(metricsKey(state.id, id));
+    }
+    await cleanup.exec().catch(() => undefined);
   }
 
   /**

@@ -15,7 +15,7 @@ export class ListGamesQueryDto {
   @Max(100)
   limit?: number = 20;
 
-  /** Reserved for Phase 4 — accepted but ignored for now. */
+  /** Filter games by participant. Phase 7A: honoured. */
   @IsOptional()
   @IsString()
   @MaxLength(64)

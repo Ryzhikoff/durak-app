@@ -36,6 +36,7 @@
     "fastify": "4.28.1",
     "ioredis": "5.4.1",
     "nestjs-pino": "4.1.0",
+    "openskill": "4.1.1",
     "pino": "9.5.0",
     "pino-http": "10.3.0",
     "pino-pretty": "11.3.0",

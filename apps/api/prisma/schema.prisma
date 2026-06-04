@@ -1,6 +1,6 @@
-// Prisma schema for Durak app (Phase 1: auth + admin).
-// Game-related models will be added in later phases. The trueskill fields
-// on User are kept here per brief (foundation for future rating).
+// Prisma schema for Durak app.
+// Phase 7A introduces game persistence (Game, GameParticipant, RatingConfig)
+// and wires RatingHistory into a non-nullable Game FK.
 
 generator client {
   provider = "prisma-client-js"
@@ -25,12 +25,15 @@ model User {
   customCardBackUrl  String?
   trueskillMu        Float    @default(25.0)
   trueskillSigma     Float    @default(8.333333)
+  gamesPlayed        Int      @default(0)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   disabledAt         DateTime?
 
   sessions       Session[]
   ratingHistory  RatingHistory[]
+  games          GameParticipant[]
+  gamesLost      Game[]            @relation("GameLoser")
 
   @@index([disabledAt])
 }
@@ -50,9 +53,13 @@ model Session {
 model RatingHistory {
   id            String   @id @default(cuid())
   userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  /// FK to Game; left as plain string for now since Game model is added in later phase.
-  gameId        String?
+  /// Phase 7A.1: Restrict on User delete — we never hard-delete users (admin
+  /// uses soft-delete via `disabledAt`); this guards against an accidental
+  /// raw SQL DELETE wiping out game history. CASCADE on Game delete is fine:
+  /// games are immutable once written.
+  user          User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  gameId        String
+  game          Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
   muBefore      Float
   sigmaBefore   Float
   muAfter       Float
@@ -72,4 +79,84 @@ model GameSettingsTemplate {
   config    Json
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+/// A completed game. Phase 7A: written exactly once on `game_over`.
+model Game {
+  id            String   @id
+  /// Snapshot of LobbySettings used to run this game.
+  settingsJson  Json
+  startedAt     DateTime
+  finishedAt    DateTime
+  durationSec   Int
+  /// null = draw (all players finished in the same bout).
+  loserId       String?
+  totalBouts    Int
+  createdAt     DateTime @default(now())
+
+  participants  GameParticipant[]
+  loser         User?    @relation("GameLoser", fields: [loserId], references: [id], onDelete: SetNull)
+  ratingHistory RatingHistory[]
+
+  @@index([finishedAt(sort: Desc)])
+}
+
+/// One row per (game, user). Captures rating snapshot + per-game metrics.
+model GameParticipant {
+  id                  String  @id @default(cuid())
+  gameId              String
+  game                Game    @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  userId              String
+  /// Phase 7A.1: Restrict on User delete — admin uses soft-delete via
+  /// `disabledAt`; this guards against an accidental raw SQL DELETE wiping
+  /// out game history. CASCADE on Game delete remains because games are
+  /// immutable once written.
+  user                User    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  /// 1 = first to clear hand, N = durak. Ties get equal place (see metrics-collector).
+  place               Int
+  seatIndex           Int
+  isWinner            Boolean
+  isLoser             Boolean
+  /// TrueSkill snapshot.
+  muBefore            Float
+  sigmaBefore         Float
+  muAfter             Float
+  sigmaAfter          Float
+  deltaDisplay        Float
+  /// Profile snapshot for historical display.
+  nicknameSnapshot    String
+  avatarUrlSnapshot   String?
+  /// Per-game metrics — aggregated from the engine's domain events.
+  attacksMade         Int     @default(0)
+  beatsMade           Int     @default(0)
+  translatesMade      Int     @default(0)
+  takesAsked          Int     @default(0)
+  cardsTaken          Int     @default(0)
+  boutsAttacked       Int     @default(0)
+  boutsDefended       Int     @default(0)
+  /// Cheating-related metrics.
+  cheatAttemptedTotal Int     @default(0)
+  cheatCaught         Int     @default(0)
+  cheatEscaped        Int     @default(0)
+  noticesIssued       Int     @default(0)
+  noticesCorrect      Int     @default(0)
+  noticesWrong        Int     @default(0)
+
+  @@unique([gameId, userId])
+  @@index([userId, gameId])
+  @@index([userId, place])
+}
+
+/// Singleton TrueSkill parameters editable from the admin UI. We use a
+/// fixed primary key (`'singleton'`) so the row is upsert-able. Defaults
+/// match the openskill library's PlackettLuce defaults.
+model RatingConfig {
+  id                String   @id @default("singleton")
+  initialMu         Float    @default(25.0)
+  initialSigma      Float    @default(8.333333)
+  beta              Float    @default(4.166667)
+  tau               Float    @default(0.083333)
+  drawProbability   Float    @default(0.1)
+  updatedAt         DateTime @updatedAt
+  updatedById       String?
 }

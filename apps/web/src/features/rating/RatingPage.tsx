@@ -1,13 +1,17 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useQueryClient } from '@tanstack/react-query';
+import { GAME_EVENTS } from '@durak/shared-types';
 import { Alert, Button, Card, Spinner } from '@/components/ui';
 import { Avatar } from '@/components/Avatar';
-import { useRating } from './hooks';
-import { useGames } from '@/features/games/hooks';
+import { useRating, RATING_QUERY_KEY } from './hooks';
+import { useGames, GAMES_QUERY_KEY } from '@/features/games/hooks';
+import { gamesSocket, useGameSocket } from '@/features/games/socket';
 import { LobbyListSection } from '@/features/lobbies/LobbyListSection';
 import { useAuthStore } from '@/stores/auth.store';
 import { getApiErrorMessage } from '@/lib/api';
+import { PROFILE_QUERY_KEY } from '@/features/profile/hooks';
 import type { GameSummary, RatingEntry } from '@durak/shared-types';
 
 const PAGE_LIMIT = 20;
@@ -16,6 +20,7 @@ const RECENT_GAMES_LIMIT = 20;
 export function RatingPage() {
   const { t } = useTranslation();
   const me = useAuthStore((s) => s.user);
+  const qc = useQueryClient();
   const [page, setPage] = useState(1);
 
   const ratingQuery = useMemo(() => ({ page, limit: PAGE_LIMIT }), [page]);
@@ -25,6 +30,26 @@ export function RatingPage() {
     [],
   );
   const recentGames = useGames(recentGamesQuery);
+
+  // Keep the rating + recent-games lists fresh: when ANY game in the system
+  // ends the backend emits `game:over_public` on the /games namespace. The
+  // per-participant `game:over` event is delivered only to sockets in that
+  // game's room, so a viewer on the home page would never observe it — the
+  // public version is what we listen for here. The profile cache is
+  // invalidated too — a user might be staring at their own profile in a
+  // different tab/route after the game and expect the new rating to appear.
+  useGameSocket();
+  useEffect(() => {
+    const onOverPublic = () => {
+      void qc.invalidateQueries({ queryKey: [RATING_QUERY_KEY] });
+      void qc.invalidateQueries({ queryKey: [GAMES_QUERY_KEY] });
+      void qc.invalidateQueries({ queryKey: [PROFILE_QUERY_KEY] });
+    };
+    gamesSocket.on(GAME_EVENTS.overPublic, onOverPublic);
+    return () => {
+      gamesSocket.off(GAME_EVENTS.overPublic, onOverPublic);
+    };
+  }, [qc]);
 
   const totalPages = rating.data
     ? Math.max(1, Math.ceil(rating.data.total / PAGE_LIMIT))
@@ -151,7 +176,7 @@ export function RatingPage() {
         ) : (
           <div className="flex flex-col gap-2">
             {recentGames.data.items.map((g) => (
-              <GameSummaryCard key={g.id} game={g} />
+              <GameSummaryCard key={g.id} game={g} myUserId={me?.id} />
             ))}
           </div>
         )}
@@ -205,7 +230,24 @@ function RatingMobileCard({ entry, place }: { entry: RatingEntry; place: number 
   );
 }
 
-function GameSummaryCard({ game }: { game: GameSummary }) {
+function formatDuration(seconds: number | undefined | null): string {
+  if (seconds === undefined || seconds === null || Number.isNaN(seconds)) {
+    return '—';
+  }
+  const s = Math.max(0, Math.floor(seconds));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${r.toString().padStart(2, '0')}`;
+}
+
+function GameSummaryCard({
+  game,
+  myUserId,
+}: {
+  game: GameSummary;
+  myUserId?: string;
+}) {
+  const { t } = useTranslation();
   const fmt = useMemo(
     () =>
       new Intl.DateTimeFormat('ru-RU', {
@@ -217,17 +259,33 @@ function GameSummaryCard({ game }: { game: GameSummary }) {
       }),
     [],
   );
+  const winner = game.players.find((p) => p.isWinner ?? p.place === 1);
+  const myPlace =
+    myUserId !== undefined
+      ? (game.players.find((p) => p.id === myUserId)?.place ?? null)
+      : null;
+  const dateSource = game.finishedAt ?? game.endedAt ?? game.startedAt;
   return (
     <Link to={`/games/${game.id}`}>
       <Card className="!p-3 transition-colors hover:bg-surfaceAlt/60">
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <div className="truncate text-sm font-medium">
-              {game.players.map((p) => p.nickname).join(', ')}
+        <div className="flex flex-col gap-1.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-sm font-medium">
+              {fmt.format(new Date(dateSource))}
             </div>
-            <div className="text-xs text-textMuted">
-              {fmt.format(new Date(game.startedAt))}
+            <div className="text-xs text-textMuted tabular-nums">
+              {formatDuration(game.durationSec)}
             </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 text-xs text-textMuted">
+            {winner ? (
+              <span className="truncate">
+                {t('home.recentGames.winner', { nickname: winner.nickname })}
+              </span>
+            ) : null}
+            {myPlace != null ? (
+              <span>{t('home.recentGames.yourPlace', { place: myPlace })}</span>
+            ) : null}
           </div>
         </div>
       </Card>

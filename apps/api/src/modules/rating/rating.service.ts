@@ -14,6 +14,8 @@ interface RatingUserRow {
   trueskillMu: number;
   trueskillSigma: number;
   updatedAt: Date;
+  /** Optional in spec stubs; defaults to 0 when missing. */
+  gamesPlayed?: number;
 }
 
 export interface IRatingPrismaClient {
@@ -28,6 +30,7 @@ export interface IRatingPrismaClient {
         trueskillMu: true;
         trueskillSigma: true;
         updatedAt: true;
+        gamesPlayed?: true;
       };
       take: number;
     }): Promise<RatingUserRow[]>;
@@ -67,6 +70,7 @@ export class RatingService {
           trueskillMu: true,
           trueskillSigma: true,
           updatedAt: true,
+          gamesPlayed: true,
         },
         take: 5000,
       }),
@@ -84,7 +88,7 @@ export class RatingService {
       nickname: u.nickname,
       avatarUrl: u.avatarUrl,
       rating: conservativeRating(u.trueskillMu, u.trueskillSigma),
-      gamesPlayed: 0, // TODO: Phase 4 — when the Game model lands.
+      gamesPlayed: u.gamesPlayed ?? 0,
       lastSeenAt: u.updatedAt.toISOString(),
     }));
 

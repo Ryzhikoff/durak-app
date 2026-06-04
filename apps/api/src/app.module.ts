@@ -10,6 +10,7 @@ import { HealthModule } from './modules/health/health.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { AdminSetupModule } from './modules/admin-setup/admin-setup.module';
 import { AdminUsersModule } from './modules/admin-users/admin-users.module';
+import { AdminRatingConfigModule } from './modules/admin-rating-config/admin-rating-config.module';
 import { MeModule } from './modules/me/me.module';
 import { CardBacksModule } from './modules/card-backs/card-backs.module';
 import { RatingModule } from './modules/rating/rating.module';
@@ -58,6 +59,7 @@ import { LobbiesModule } from './modules/lobbies/lobbies.module';
     AuthModule,
     AdminSetupModule,
     AdminUsersModule,
+    AdminRatingConfigModule,
     MeModule,
     CardBacksModule,
     RatingModule,

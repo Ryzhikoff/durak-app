@@ -26,6 +26,28 @@ import type {
   PublicProfile,
 } from '@durak/shared-types';
 
+const CHEAT_KEYS = [
+  'cheatAttempts',
+  'cheatCaught',
+  'cheatEscaped',
+  'noticesIssued',
+  'noticesCorrect',
+  'noticesWrong',
+] as const satisfies ReadonlyArray<keyof ProfileStats>;
+
+type OptionalNumber = number | undefined;
+
+/** Format `durationSec` as `m:ss` (e.g. 7:04). Returns '—' for null/undefined. */
+function formatDuration(seconds: number | undefined | null): string {
+  if (seconds === undefined || seconds === null || Number.isNaN(seconds)) {
+    return '—';
+  }
+  const s = Math.max(0, Math.floor(seconds));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${r.toString().padStart(2, '0')}`;
+}
+
 const CARD_BACK_MAX_BYTES = 5 * 1024 * 1024;
 const CARD_BACK_ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
@@ -85,7 +107,7 @@ function ProfileView({
     <div className="flex flex-col gap-6">
       <ProfileHeader profile={profile} />
       <StatsSection stats={profile.stats} />
-      <LastGamesSection games={profile.lastGames} />
+      <LastGamesSection games={profile.lastGames} profileId={profile.id} />
       {isOwn ? <OwnSettings profile={profile} /> : null}
       {isOwn ? (
         <Card>
@@ -131,49 +153,157 @@ function ProfileHeader({ profile }: { profile: PublicProfile }) {
   );
 }
 
-const STAT_KEYS: ReadonlyArray<keyof ProfileStats> = [
-  'gamesPlayed',
-  'wins',
-  'lastPlaces',
-  'firstPlaceRate',
-  'lastPlaceRate',
-  'cheatAttempts',
-  'cheatCaught',
-];
+function pct(value: number): string {
+  // API gives 0..1
+  return `${Math.round(value * 100)}%`;
+}
 
 function StatsSection({ stats }: { stats: ProfileStats }) {
   const { t } = useTranslation();
-  const allZero = STAT_KEYS.every((k) => stats[k] === 0);
-  return (
-    <section aria-labelledby="profile-stats" className="flex flex-col gap-3">
-      <h2 id="profile-stats" className="text-lg font-semibold">
-        {t('profile.statsTitle')}
-      </h2>
-      {allZero ? (
+
+  if (stats.gamesPlayed === 0) {
+    return (
+      <section aria-labelledby="profile-stats" className="flex flex-col gap-3">
+        <h2 id="profile-stats" className="text-lg font-semibold">
+          {t('profile.statsTitle')}
+        </h2>
         <Card>
           <p className="text-center text-textMuted">{t('profile.statsEmpty')}</p>
         </Card>
-      ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {STAT_KEYS.map((key) => (
-            <StatCard
-              key={key}
-              label={t(`profile.stats.${key}`)}
-              value={formatStat(key, stats[key])}
-            />
-          ))}
+      </section>
+    );
+  }
+
+  // "Game actions" cards — only show ones that are defined (Phase 7A optional).
+  // attacksMade/beatsMade aren't part of ProfileStats yet (they live on
+  // per-game GameParticipantMetrics) but may be added later — defensively
+  // probe via an index lookup so future additions wire themselves up.
+  const actionCards: Array<{ key: string; label: string; value: string }> = [];
+  const statsRecord = stats as unknown as Record<string, OptionalNumber>;
+  const attacks = statsRecord.attacksMade;
+  const beats = statsRecord.beatsMade;
+  if (typeof attacks === 'number') {
+    actionCards.push({
+      key: 'attacksMade',
+      label: t('profile.stats.attacksMade'),
+      value: String(attacks),
+    });
+  }
+  if (typeof beats === 'number') {
+    actionCards.push({
+      key: 'beatsMade',
+      label: t('profile.stats.beatsMade'),
+      value: String(beats),
+    });
+  }
+  if (typeof stats.translatesMade === 'number') {
+    actionCards.push({
+      key: 'translatesMade',
+      label: t('profile.stats.translatesMade'),
+      value: String(stats.translatesMade),
+    });
+  }
+  if (typeof stats.takesAsked === 'number') {
+    actionCards.push({
+      key: 'takesAsked',
+      label: t('profile.stats.takesAsked'),
+      value: String(stats.takesAsked),
+    });
+  }
+  if (typeof stats.cardsTaken === 'number') {
+    actionCards.push({
+      key: 'cardsTaken',
+      label: t('profile.stats.cardsTaken'),
+      value: String(stats.cardsTaken),
+    });
+  }
+  const boutsAttacked = statsRecord.boutsAttacked;
+  const boutsDefended = statsRecord.boutsDefended;
+  if (typeof boutsAttacked === 'number') {
+    actionCards.push({
+      key: 'boutsAttacked',
+      label: t('profile.stats.boutsAttacked'),
+      value: String(boutsAttacked),
+    });
+  }
+  if (typeof boutsDefended === 'number') {
+    actionCards.push({
+      key: 'boutsDefended',
+      label: t('profile.stats.boutsDefended'),
+      value: String(boutsDefended),
+    });
+  }
+
+  // Cheat section — show only if any cheat metric is defined and >0.
+  const cheatCards: Array<{ key: string; label: string; value: string }> = [];
+  for (const k of CHEAT_KEYS) {
+    const v = stats[k] as OptionalNumber;
+    if (typeof v === 'number') {
+      cheatCards.push({
+        key: k,
+        label: t(`profile.stats.${k}`),
+        value: String(v),
+      });
+    }
+  }
+  const showCheat = cheatCards.length > 0;
+
+  return (
+    <section aria-labelledby="profile-stats" className="flex flex-col gap-4">
+      <h2 id="profile-stats" className="text-lg font-semibold">
+        {t('profile.statsTitle')}
+      </h2>
+
+      {/* Games */}
+      <div className="flex flex-col gap-2">
+        <h3 className="text-sm font-semibold text-textMuted">
+          {t('profile.stats.sections.games')}
+        </h3>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <StatCard
+            label={t('profile.stats.gamesPlayed')}
+            value={String(stats.gamesPlayed)}
+          />
+          <StatCard
+            label={t('profile.stats.wins')}
+            value={`${stats.wins} (${pct(stats.firstPlaceRate)})`}
+          />
+          <StatCard
+            label={t('profile.stats.lastPlaces')}
+            value={`${stats.lastPlaces} (${pct(stats.lastPlaceRate)})`}
+          />
         </div>
-      )}
+      </div>
+
+      {/* Game actions */}
+      {actionCards.length > 0 ? (
+        <div className="flex flex-col gap-2">
+          <h3 className="text-sm font-semibold text-textMuted">
+            {t('profile.stats.sections.actions')}
+          </h3>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            {actionCards.map((c) => (
+              <StatCard key={c.key} label={c.label} value={c.value} />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Cheating */}
+      {showCheat ? (
+        <div className="flex flex-col gap-2">
+          <h3 className="text-sm font-semibold text-textMuted">
+            {t('profile.stats.sections.cheat')}
+          </h3>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            {cheatCards.map((c) => (
+              <StatCard key={c.key} label={c.label} value={c.value} />
+            ))}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
-}
-
-function formatStat(key: keyof ProfileStats, value: number): string {
-  if (key === 'firstPlaceRate' || key === 'lastPlaceRate') {
-    // API gives 0..1
-    return `${Math.round(value * 100)}%`;
-  }
-  return String(value);
 }
 
 function StatCard({ label, value }: { label: string; value: string }) {
@@ -185,7 +315,13 @@ function StatCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function LastGamesSection({ games }: { games: GameSummary[] }) {
+function LastGamesSection({
+  games,
+  profileId,
+}: {
+  games: GameSummary[];
+  profileId: string;
+}) {
   const { t } = useTranslation();
   const fmt = useMemo(
     () =>
@@ -210,20 +346,55 @@ function LastGamesSection({ games }: { games: GameSummary[] }) {
       ) : (
         <div className="flex flex-col gap-2">
           {games.map((g) => (
-            <Link key={g.id} to={`/games/${g.id}`}>
-              <Card className="!p-3 transition-colors hover:bg-surfaceAlt/60">
-                <div className="text-sm font-medium">
-                  {g.players.map((p) => p.nickname).join(', ')}
-                </div>
-                <div className="text-xs text-textMuted">
-                  {fmt.format(new Date(g.startedAt))}
-                </div>
-              </Card>
-            </Link>
+            <ProfileGameRow key={g.id} game={g} profileId={profileId} fmt={fmt} t={t} />
           ))}
         </div>
       )}
     </section>
+  );
+}
+
+interface ProfileGameRowProps {
+  game: GameSummary;
+  profileId: string;
+  fmt: Intl.DateTimeFormat;
+  t: (key: string, opts?: Record<string, unknown>) => string;
+}
+
+function ProfileGameRow({ game, profileId, fmt, t }: ProfileGameRowProps) {
+  // Owner row in `players` (server fills `players[i].place` and `isLoser`).
+  const me = game.players.find((p) => p.id === profileId);
+  const winner = game.players.find((p) => p.isWinner ?? p.place === 1);
+  const dateSource = game.finishedAt ?? game.endedAt ?? game.startedAt;
+  const dateLabel = fmt.format(new Date(dateSource));
+  const durationLabel = formatDuration(game.durationSec);
+  const playerCount = game.playerCount ?? game.players.length;
+  return (
+    <Link to={`/games/${game.id}`}>
+      <Card className="!p-3 transition-colors hover:bg-surfaceAlt/60">
+        <div className="flex flex-col gap-1.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-sm font-medium">{dateLabel}</div>
+            <div className="text-xs text-textMuted tabular-nums">
+              {durationLabel}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 text-xs text-textMuted">
+            <span>{t('profile.lastGames.players', { count: playerCount })}</span>
+            {me?.place != null ? (
+              <span>
+                {t('profile.lastGames.yourPlace', { place: me.place })}
+              </span>
+            ) : null}
+            {winner ? (
+              <span className="truncate">
+                {t('profile.lastGames.winner', { nickname: winner.nickname })}
+              </span>
+            ) : null}
+          </div>
+        </div>
+      </Card>
+    </Link>
   );
 }
 

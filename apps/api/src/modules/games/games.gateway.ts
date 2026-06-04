@@ -276,6 +276,22 @@ export class GamesGateway
     if (events.length > 0) {
       this.server.to(room).emit(GAME_EVENTS.events, { events });
     }
+    // When a game ends, fan out a minimal public broadcast to every socket on
+    // the `/games` namespace. Players sitting on the rating / home page are
+    // NOT in this game's room, so they would never observe the per-room
+    // `game:over` event. The public broadcast carries only an id + timestamp
+    // — enough to drive cache invalidation, no state leak.
+    if (over) {
+      const publicNs = this.server?.of?.(GAME_NAMESPACE) ?? this.server;
+      try {
+        publicNs?.emit(GAME_EVENTS.overPublic, {
+          gameId: state.id,
+          finishedAt: new Date().toISOString(),
+        });
+      } catch (err) {
+        this.logger.warn({ err, gameId: state.id }, 'failed to broadcast public game-over');
+      }
+    }
   }
 
   /**

@@ -133,6 +133,23 @@ class FakeRedis {
     if (!h) return {};
     return Object.fromEntries(h.entries());
   }
+  async hincrby(key: string, field: string, by: number): Promise<number> {
+    let h = this.hashes.get(key);
+    if (!h) {
+      h = new Map();
+      this.hashes.set(key, h);
+    }
+    const cur = h.get(field);
+    const next = (cur ? Number.parseInt(cur, 10) : 0) + by;
+    h.set(field, String(next));
+    return next;
+  }
+  async incr(key: string): Promise<number> {
+    const cur = this.store.get(key);
+    const next = (cur ? Number.parseInt(cur, 10) : 0) + 1;
+    this.store.set(key, String(next));
+    return next;
+  }
   multi(): FakeRedis & { exec: () => Promise<unknown[]> } {
     const queue: Array<() => Promise<unknown>> = [];
     const proxy: Record<string, unknown> = {};
@@ -148,6 +165,10 @@ class FakeRedis {
       'rpush',
       'ltrim',
       'lrange',
+      'hset',
+      'hdel',
+      'hincrby',
+      'incr',
     ] as const;
     for (const m of methods) {
       const fn = (this[m] as (...args: unknown[]) => Promise<unknown>).bind(this);
@@ -660,5 +681,133 @@ describe('GamesService chat', () => {
       ua: '\u{1F525}',
       ub: '\u{1F44D}',
     });
+  });
+});
+
+describe('GamesService.finalizeGame', () => {
+  /**
+   * Build a minimal in-memory Prisma stub with just the operations
+   * `finalizeGame` touches: ratingConfig.findUnique, user.findMany / update,
+   * and a $transaction wrapper that proxies to an inner TxClient stub.
+   */
+  function makeFinalizePrisma() {
+    const games = new Map<string, { id: string }>();
+    const participants: Array<Record<string, unknown>> = [];
+    const ratingHistory: Array<Record<string, unknown>> = [];
+    const users: Record<
+      string,
+      {
+        id: string;
+        nickname: string;
+        avatarUrl: string | null;
+        trueskillMu: number;
+        trueskillSigma: number;
+        gamesPlayed: number;
+      }
+    > = {
+      ua: {
+        id: 'ua',
+        nickname: 'Alice',
+        avatarUrl: null,
+        trueskillMu: 25,
+        trueskillSigma: 8.333333,
+        gamesPlayed: 0,
+      },
+      ub: {
+        id: 'ub',
+        nickname: 'Bob',
+        avatarUrl: null,
+        trueskillMu: 25,
+        trueskillSigma: 8.333333,
+        gamesPlayed: 0,
+      },
+    };
+    const tx = {
+      game: {
+        findUnique: vi.fn(async ({ where }: { where: { id: string } }) => {
+          return games.get(where.id) ?? null;
+        }),
+        create: vi.fn(async ({ data }: { data: { id: string } }) => {
+          games.set(data.id, { id: data.id });
+        }),
+      },
+      gameParticipant: {
+        create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          participants.push(data);
+        }),
+      },
+      ratingHistory: {
+        create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          ratingHistory.push(data);
+        }),
+      },
+      user: {
+        update: vi.fn(
+          async ({
+            where,
+            data,
+          }: {
+            where: { id: string };
+            data: {
+              trueskillMu: number;
+              trueskillSigma: number;
+              gamesPlayed: { increment: number };
+            };
+          }) => {
+            const u = users[where.id];
+            if (!u) return;
+            u.trueskillMu = data.trueskillMu;
+            u.trueskillSigma = data.trueskillSigma;
+            u.gamesPlayed += data.gamesPlayed.increment;
+          },
+        ),
+      },
+    };
+    const prisma = {
+      ratingConfig: {
+        findUnique: vi.fn(async () => ({
+          initialMu: 25,
+          initialSigma: 8.333333,
+          beta: 4.166667,
+          tau: 0.083333,
+          drawProbability: 0.1,
+        })),
+      },
+      user: {
+        findMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) =>
+          where.id.in.map((id) => users[id]).filter(Boolean),
+        ),
+      },
+      $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(tx)),
+    };
+    return { prisma, tx, games, participants, ratingHistory, users };
+  }
+
+  it('is idempotent — second call on the same state does not double-insert', async () => {
+    const redis = new FakeRedis();
+    const { prisma, games, participants, ratingHistory, users } = makeFinalizePrisma();
+    const svc = makeService(redis, prisma);
+    const { state } = await svc.createFromLobby(makeLobby());
+
+    // Synthesise a game-over by hand: one finished player + one durak.
+    const overState: GameState = {
+      ...state,
+      status: 'game_over',
+      finishedPlayers: ['ua'],
+      loserPlayerId: 'ub',
+    };
+
+    await svc.finalizeGame(overState);
+    await svc.finalizeGame(overState);
+
+    // Game persisted exactly once.
+    expect(games.size).toBe(1);
+    // Two participants, not four.
+    expect(participants).toHaveLength(2);
+    // One rating-history row per player.
+    expect(ratingHistory).toHaveLength(2);
+    // gamesPlayed bumped by exactly 1 for each player.
+    expect(users.ua.gamesPlayed).toBe(1);
+    expect(users.ub.gamesPlayed).toBe(1);
   });
 });

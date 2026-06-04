@@ -163,14 +163,43 @@ export interface RatingListQuery {
 
 // ---------- Public profile ----------
 
+/**
+ * Per-profile aggregate stats. Phase 7A added the cheat/translate/take
+ * counters — they're optional on the wire so a Phase-2 client still
+ * compiles. Server fills them in when game history exists.
+ */
 export interface ProfileStats {
   gamesPlayed: number;
   wins: number;
   lastPlaces: number;
   firstPlaceRate: number;
   lastPlaceRate: number;
+  /** Total illegal plays this player attempted (caught + escaped). */
   cheatAttempts: number;
+  /** Of those, how many were caught by another player's notice_cheat. */
   cheatCaught: number;
+  /** Of those, how many slipped through to bout close. */
+  cheatEscaped?: number;
+  /** Notice_cheat clicks issued. */
+  noticesIssued?: number;
+  /** Of those, succeeded (real cheat). */
+  noticesCorrect?: number;
+  /** Of those, false alarms. */
+  noticesWrong?: number;
+  /** Total translate moves performed. */
+  translatesMade?: number;
+  /** Number of "беру" decisions made as defender. */
+  takesAsked?: number;
+  /** Total cards picked up via "беру". */
+  cardsTaken?: number;
+  /** Total attack actions performed across all games (Phase 7A.1). */
+  attacksMade?: number;
+  /** Total successful beat actions performed (Phase 7A.1). */
+  beatsMade?: number;
+  /** Bouts entered as the attacker (Phase 7A.1). */
+  boutsAttacked?: number;
+  /** Bouts entered as the defender (Phase 7A.1). */
+  boutsDefended?: number;
 }
 
 export interface PublicProfile {
@@ -185,29 +214,87 @@ export interface PublicProfile {
     sigma: number;
   };
   stats: ProfileStats;
-  /** Stubbed in Phase 2; populated in Phase 4+. */
+  /** Most recent finished games for this profile (server-capped). */
   lastGames: GameSummary[];
   cardBackId: string;
   randomCardBack: boolean;
   customCardBackUrl: string | null;
 }
 
-// ---------- Games (stubs for Phase 2) ----------
+// ---------- Games (Phase 7A — history) ----------
+
+/**
+ * Phase 7A summary. We keep the legacy `players` field (Phase 2 frontend) and
+ * add Phase 7A extras: `finishedAt`, `durationSec`, etc. Existing UIs continue
+ * to read `players[].nickname` / `startedAt`; new UIs can use the richer data.
+ */
+export interface GameSummaryPlayer {
+  id: string;
+  nickname: string;
+  avatarUrl?: string | null;
+  /** null for unfinished games (none exist in Phase 7A but kept for legacy). */
+  place: number | null;
+  isWinner?: boolean;
+  isLoser?: boolean;
+}
 
 export interface GameSummary {
   id: string;
   startedAt: string;
+  /** Phase 2 legacy: `endedAt`. Phase 7A always populated. */
   endedAt: string | null;
-  players: Array<{
-    id: string;
-    nickname: string;
-    place: number | null;
-  }>;
+  /** Phase 7A alias for `endedAt`. */
+  finishedAt?: string;
+  durationSec?: number;
+  playerCount?: number;
+  loserId?: string | null;
+  totalBouts?: number;
+  settings?: LobbySettings;
+  players: GameSummaryPlayer[];
 }
 
-export interface GameDetail extends GameSummary {
-  /** Reserved for the future game replay payload. */
-  events: unknown[];
+/** Per-game stats snapshot for a single participant. */
+export interface GameParticipantMetrics {
+  attacksMade: number;
+  beatsMade: number;
+  translatesMade: number;
+  takesAsked: number;
+  cardsTaken: number;
+  boutsAttacked: number;
+  boutsDefended: number;
+  cheatAttemptedTotal: number;
+  cheatCaught: number;
+  cheatEscaped: number;
+  noticesIssued: number;
+  noticesCorrect: number;
+  noticesWrong: number;
+}
+
+export interface GameParticipantPublic {
+  userId: string;
+  nickname: string;
+  avatarUrl: string | null;
+  seatIndex: number;
+  place: number;
+  isWinner: boolean;
+  isLoser: boolean;
+  muBefore: number;
+  sigmaBefore: number;
+  muAfter: number;
+  sigmaAfter: number;
+  deltaDisplay: number;
+  metrics: GameParticipantMetrics;
+}
+
+export interface GameDetail {
+  id: string;
+  settings: LobbySettings;
+  startedAt: string;
+  finishedAt: string;
+  durationSec: number;
+  loserId: string | null;
+  totalBouts: number;
+  participants: GameParticipantPublic[];
 }
 
 export interface GameListResponse extends Pagination {
@@ -218,6 +305,26 @@ export interface GameListQuery {
   page?: number;
   limit?: number;
   playerId?: string;
+}
+
+// ---------- Admin: rating config ----------
+
+export interface RatingConfig {
+  initialMu: number;
+  initialSigma: number;
+  beta: number;
+  tau: number;
+  drawProbability: number;
+  updatedAt: string;
+  updatedById: string | null;
+}
+
+export interface UpdateRatingConfigRequest {
+  initialMu?: number;
+  initialSigma?: number;
+  beta?: number;
+  tau?: number;
+  drawProbability?: number;
 }
 
 // ---------- Lobby (Phase 3) ----------
@@ -349,9 +456,24 @@ export const GAME_EVENTS = {
   over: 'game:over',
   chatMessage: 'game:chat_message',
   chatReaction: 'game:chat_reaction',
+  /**
+   * Public game-over broadcast — fanned out to every socket connected to the
+   * `/games` namespace, NOT just per-game room members. Payload is the minimum
+   * needed to drive cache invalidation on the rating / recent-games pages:
+   * `{ gameId, finishedAt }`. The per-participant `over` event still carries
+   * the full personalised state.
+   */
+  overPublic: 'game:over_public',
 } as const;
 
 export type GameEventName = (typeof GAME_EVENTS)[keyof typeof GAME_EVENTS];
+
+/** Payload of the public `game:over_public` broadcast. */
+export interface GameOverPublicPayload {
+  gameId: string;
+  /** ISO 8601 timestamp of finalization. */
+  finishedAt: string;
+}
 
 /**
  * Snapshot of the reply target denormalised onto the replying message at write

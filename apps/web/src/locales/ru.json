@@ -6,6 +6,7 @@
   "nav": {
     "home": "Главная",
     "admin": "Админка",
+    "adminRatingConfig": "Параметры рейтинга",
     "profile": "Профиль",
     "logout": "Выйти",
     "menuToggle": "Меню"
@@ -54,12 +55,16 @@
       "place": "#",
       "player": "Игрок",
       "rating": "Рейтинг",
-      "games": "Игры"
+      "games": "Игр сыграно"
     },
     "page": "Страница {{page}} из {{total}}",
     "prev": "Назад",
     "next": "Вперёд",
-    "greeting": "Привет, {{nickname}}!"
+    "greeting": "Привет, {{nickname}}!",
+    "recentGames": {
+      "winner": "Победитель: {{nickname}}",
+      "yourPlace": "Ваше место: {{place}}"
+    }
   },
   "profile": {
     "title": "Профиль",
@@ -68,16 +73,40 @@
     "statsTitle": "Статистика",
     "statsEmpty": "Статистика появится после первых игр",
     "stats": {
+      "sections": {
+        "games": "Игры",
+        "actions": "Игровые действия",
+        "cheat": "Жульничество"
+      },
       "gamesPlayed": "Игр сыграно",
-      "wins": "Победы",
-      "lastPlaces": "Последние места",
+      "wins": "Победы (1-е место)",
+      "lastPlaces": "Проигрыши (дурак)",
       "firstPlaceRate": "Доля первых мест",
       "lastPlaceRate": "Доля последних мест",
-      "cheatAttempts": "Попыток смухлевать",
-      "cheatCaught": "Поймал на мухляже"
+      "attacksMade": "Атаки",
+      "beatsMade": "Биения",
+      "translatesMade": "Переводы",
+      "takesAsked": "Беру",
+      "cardsTaken": "Карт забрано",
+      "boutsAttacked": "Раздач в атаке",
+      "boutsDefended": "Раздач в защите",
+      "cheatAttempts": "Попыток сжульничать",
+      "cheatCaught": "Поймали",
+      "cheatEscaped": "Прокатило",
+      "noticesIssued": "Подал жалоб",
+      "noticesCorrect": "Угадал",
+      "noticesWrong": "Промазал"
     },
     "lastGamesTitle": "Последние игры",
     "lastGamesEmpty": "Игр ещё нет",
+    "lastGames": {
+      "players_one": "{{count}} игрок",
+      "players_few": "{{count}} игрока",
+      "players_many": "{{count}} игроков",
+      "players_other": "{{count}} игроков",
+      "yourPlace": "Ваше место: {{place}}",
+      "winner": "Победитель: {{nickname}}"
+    },
     "settingsTitle": "Настройки профиля",
     "avatarTitle": "Аватар",
     "avatarUpload": "Загрузить",
@@ -327,6 +356,38 @@
       "submitting": "Сбрасываем...",
       "successTitle": "Пароль сброшен",
       "successDescription": "Передайте пользователю новые данные."
+    },
+    "ratingConfig": {
+      "title": "Параметры рейтинга",
+      "subtitle": "Настройки модели TrueSkill, по которой считается рейтинг игроков.",
+      "save": "Сохранить",
+      "saving": "Сохраняем...",
+      "saved": "Параметры сохранены",
+      "invalid": "Допустимый диапазон: от {{min}} до {{max}}",
+      "warning": "Изменения применяются только к новым играм. Прошлые рейтинги не пересчитываются.",
+      "drawProbabilityNote": "Вероятность ничьей сейчас не используется (определяется автоматически по результатам игры).",
+      "fields": {
+        "initialMu": {
+          "label": "Начальное μ",
+          "tooltip": "Стартовое мастерство нового игрока (mean). Стандартно 25."
+        },
+        "initialSigma": {
+          "label": "Начальное σ",
+          "tooltip": "Стартовая неуверенность в мастерстве. Стандартно ~8.333 (μ/3)."
+        },
+        "beta": {
+          "label": "β (ширина мастерства)",
+          "tooltip": "Случайный разброс уровня игры от партии к партии. Обычно σ/2."
+        },
+        "tau": {
+          "label": "τ (динамика рейтинга)",
+          "tooltip": "Дополнительная неуверенность, добавляемая между играми. Обычно σ/100."
+        },
+        "drawProbability": {
+          "label": "Вероятность ничьи",
+          "tooltip": "Ожидаемая доля партий, заканчивающихся ничьёй (для Дурака близка к нулю)."
+        }
+      }
     }
   },
   "common": {

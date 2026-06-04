@@ -43,6 +43,19 @@ vi.mock('@/lib/socket', () => ({
   SocketAckError: class SocketAckError extends Error {},
   emitWithAck: vi.fn(),
 }));
+// RatingPage now also subscribes to the games socket so it can react to
+// `game:over` and invalidate cached lists — stub the socket out for tests.
+vi.mock('@/features/games/socket', () => ({
+  gamesSocket: { on: vi.fn(), off: vi.fn(), once: vi.fn(), connected: false },
+  useGameSocket: vi.fn(),
+  connectGames: vi.fn(),
+  disconnectGames: vi.fn(),
+  subscribeGame: vi.fn(),
+  sendGameCommand: vi.fn(),
+  sendChatMessage: vi.fn(),
+  fetchChatHistory: vi.fn(),
+  sendChatReaction: vi.fn(),
+}));
 
 import { RatingPage } from './RatingPage';
 

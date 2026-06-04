@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, LogOut, Menu, ShieldCheck, UserCircle2, X } from 'lucide-react';
+import { ChevronDown, LogOut, Menu, ShieldCheck, Sliders, UserCircle2, X } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuthStore } from '@/stores/auth.store';
 import { useLogout } from '@/features/auth/hooks';
@@ -132,6 +132,14 @@ export function AppShell() {
                     {t('nav.admin')}
                   </MenuLink>
                 ) : null}
+                {user.isAdmin ? (
+                  <MenuLink
+                    to="/admin/rating-config"
+                    icon={<Sliders className="h-4 w-4" />}
+                  >
+                    {t('nav.adminRatingConfig')}
+                  </MenuLink>
+                ) : null}
                 <button
                   type="button"
                   role="menuitem"
@@ -177,6 +185,12 @@ export function AppShell() {
               <MobileNavLink to={profileHref} label={t('nav.profile')} />
               {user.isAdmin ? (
                 <MobileNavLink to="/admin" label={t('nav.admin')} />
+              ) : null}
+              {user.isAdmin ? (
+                <MobileNavLink
+                  to="/admin/rating-config"
+                  label={t('nav.adminRatingConfig')}
+                />
               ) : null}
               <Button
                 variant="secondary"
