@@ -15,11 +15,12 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core';
 import { Alert, Button, Card, Modal, Spinner } from '@/components/ui';
-import { getApiErrorCode, getApiErrorMessage } from '@/lib/api';
+import { getApiErrorMessage } from '@/lib/api';
 import { SocketAckError } from '@/lib/socket';
 import { useAuthStore } from '@/stores/auth.store';
-import { useGameChat, useGameCommand, useGameState } from './hooks';
+import { useGame, useGameChat, useGameCommand } from './hooks';
 import { GameChatPanel } from './GameChatPanel';
+import { GameDetailView } from './GameDetailView';
 import {
   ATTACK_DROP_ID_PREFIX,
   GameTable,
@@ -52,49 +53,43 @@ import type {
 export function GamePage() {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
-  const live = useGameState(id);
+  // Phase 7B — the hook now discriminates between live and finished games.
+  // We always call it so the rules of hooks are respected; the `id` guard
+  // below short-circuits the render path.
+  const game = useGame(id);
 
   if (!id) {
     return <Navigate to="/" replace />;
   }
 
-  if (live.snapshotPending && !live.data) {
-    return (
-      <div className="flex justify-center py-12">
-        <Spinner className="text-accent" />
-      </div>
-    );
-  }
-
-  if (live.snapshotError && !live.data) {
-    const code = getApiErrorCode(live.snapshotError);
-    if (code === 'GAME_NOT_FOUND') {
+  switch (game.kind) {
+    case 'loading':
+      return (
+        <div className="flex justify-center py-12">
+          <Spinner className="text-accent" />
+        </div>
+      );
+    case 'not_found':
       return <NotFound />;
-    }
-    return (
-      <Alert variant="error">
-        {getApiErrorMessage(live.snapshotError, t('errors.generic'))}
-      </Alert>
-    );
+    case 'error':
+      return (
+        <Alert variant="error">
+          {getApiErrorMessage(game.error, t('errors.generic'))}
+        </Alert>
+      );
+    case 'finished':
+      return <GameDetailView detail={game.detail} />;
+    case 'live':
+      return (
+        <GameRoom
+          gameId={id}
+          state={game.state}
+          unseenEvents={game.unseenEvents}
+          onAcknowledgeEvents={game.acknowledgeEvents}
+          subscribeError={game.subscribeError}
+        />
+      );
   }
-
-  if (!live.data) {
-    return (
-      <div className="flex justify-center py-12">
-        <Spinner className="text-accent" />
-      </div>
-    );
-  }
-
-  return (
-    <GameRoom
-      gameId={id}
-      state={live.data.state}
-      unseenEvents={live.data.unseenEvents}
-      onAcknowledgeEvents={live.acknowledgeEvents}
-      subscribeError={live.subscribeError}
-    />
-  );
 }
 
 interface GameRoomProps {

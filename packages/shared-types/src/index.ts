@@ -307,6 +307,15 @@ export interface GameListQuery {
   playerId?: string;
 }
 
+/**
+ * Phase 7B — list of past finished games played by the exact same set of
+ * participants as a given reference game (same size + same userId set).
+ */
+export interface SameCompositionResponse {
+  items: GameSummary[];
+  total: number;
+}
+
 // ---------- Admin: rating config ----------
 
 export interface RatingConfig {

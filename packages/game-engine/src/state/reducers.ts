@@ -385,9 +385,7 @@ function reduceTake(
     passedPlayerIds: [],
     status: 'bout_take_pending',
   };
-  const events: DomainEvent[] = [
-    { type: 'DefenderTookCalled', defenderId: defender.id },
-  ];
+  const events: DomainEvent[] = [{ type: 'DefenderTookCalled', defenderId: defender.id }];
 
   // Auto-close convenience: with cheating disabled, every throw-in must match
   // a rank already on the table. If the per-bout capacity is exhausted, no

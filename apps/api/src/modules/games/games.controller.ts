@@ -1,11 +1,12 @@
 import { Controller, Get, NotFoundException, Param, Query, UseGuards } from '@nestjs/common';
-import type { GameDetail, GameListResponse } from '@durak/shared-types';
+import type { GameDetail, GameListResponse, SameCompositionResponse } from '@durak/shared-types';
 import { AuthGuard } from '../auth/auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SessionPayload } from '../auth/session.service';
 import { ListGamesQueryDto } from './dto/list-games.dto';
+import { SameCompositionQueryDto } from './dto/same-composition.dto';
+import { GamesHistoryService, SAME_COMPOSITION_DEFAULT_LIMIT } from './games-history.service';
 import { GamesService } from './games.service';
-import { GamesHistoryService } from './games-history.service';
 import type { ClientGameState } from './game-redactor';
 
 /**
@@ -64,5 +65,29 @@ export class GamesController {
       throw new NotFoundException({ code: 'GAME_NOT_FOUND', message: 'Game not found' });
     }
     return { detail };
+  }
+
+  /**
+   * Phase 7B — list past finished games that share the exact same set of
+   * participants as `:id`. Active games / unknown ids return 404 so the UI
+   * can short-circuit. Sorted by `finishedAt DESC`.
+   */
+  @Get(':id/same-composition')
+  @UseGuards(AuthGuard)
+  async sameComposition(
+    @Param('id') id: string,
+    @Query() q: SameCompositionQueryDto,
+  ): Promise<SameCompositionResponse> {
+    const result = await this.history.listSameComposition(
+      id,
+      q.limit ?? SAME_COMPOSITION_DEFAULT_LIMIT,
+    );
+    if (!result) {
+      throw new NotFoundException({
+        code: 'GAME_NOT_FOUND',
+        message: 'Game not found',
+      });
+    }
+    return result;
   }
 }

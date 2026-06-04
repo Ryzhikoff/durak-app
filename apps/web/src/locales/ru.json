@@ -294,6 +294,53 @@
       }
     }
   },
+  "gameDetail": {
+    "title": "Игра {{date}}",
+    "duration_one": "Длилась {{count}} минуту",
+    "duration_few": "Длилась {{count}} минуты",
+    "duration_many": "Длилась {{count}} минут",
+    "duration_other": "Длилась {{count}} минут",
+    "durationLessThanMinute": "Длилась меньше минуты",
+    "bouts_one": "{{count}} раздача",
+    "bouts_few": "{{count}} раздачи",
+    "bouts_many": "{{count}} раздач",
+    "bouts_other": "{{count}} раздач",
+    "resultsTitle": "Результаты",
+    "metricsTitle": "Метрики игроков",
+    "rulesTitle": "Правила",
+    "rulesToggle": "Настройки этой партии",
+    "sameCompositionTitle": "Прошлые игры таким же составом",
+    "sameCompositionEmpty": "Игр таким же составом ещё не было",
+    "sameCompositionWinner": "Победил {{nickname}}",
+    "place_one": "{{place}}-е место",
+    "place_few": "{{place}}-е место",
+    "place_many": "{{place}}-е место",
+    "place_other": "{{place}}-е место",
+    "place": "{{place}}-е место",
+    "loserBadge": "Дурак",
+    "ratingAfter": "Рейтинг: {{rating}}",
+    "backToHome": "На главную",
+    "createLobby": "Создать ещё одно лобби",
+    "metricsGroups": {
+      "actions": "Действия",
+      "cheat": "Жульничество"
+    },
+    "metrics": {
+      "attacksMade": "Атак",
+      "beatsMade": "Биений",
+      "translatesMade": "Переводов",
+      "takesAsked": "Беру",
+      "cardsTaken": "Карт забрано",
+      "boutsAttacked": "Раздач в атаке",
+      "boutsDefended": "Раздач в защите",
+      "cheatAttemptedTotal": "Попыток мухляжа",
+      "cheatCaught": "Пойман на мухляже",
+      "cheatEscaped": "Мухляж сошёл с рук",
+      "noticesIssued": "Заявок «жульничает!»",
+      "noticesCorrect": "Из них верных",
+      "noticesWrong": "Из них ошибочных"
+    }
+  },
   "admin": {
     "usersTitle": "Игроки",
     "searchPlaceholder": "Поиск по логину или никнейму",

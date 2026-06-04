@@ -49,12 +49,7 @@ describe('translate', () => {
         // A is the attacker with several throw-ins of the same rank.
         {
           id: 'A',
-          hand: [
-            card('hearts', 6),
-            card('clubs', 6),
-            card('diamonds', 6),
-            card('spades', 9),
-          ],
+          hand: [card('hearts', 6), card('clubs', 6), card('diamonds', 6), card('spades', 9)],
         },
         // B starts as defender with many cards (so the original cap is big).
         {

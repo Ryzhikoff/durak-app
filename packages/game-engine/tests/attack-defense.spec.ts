@@ -353,12 +353,7 @@ describe('beat', () => {
         // Defender starts the bout with 4 cards.
         {
           id: 'B',
-          hand: [
-            card('hearts', 10),
-            card('diamonds', 10),
-            card('clubs', 8),
-            card('clubs', 9),
-          ],
+          hand: [card('hearts', 10), card('diamonds', 10), card('clubs', 8), card('clubs', 9)],
         },
       ],
       attackerId: 'A',
@@ -462,12 +457,7 @@ describe('take', () => {
           { id: 'A', hand: [card('hearts', 6), card('clubs', 6), card('spades', 6)] },
           {
             id: 'B',
-            hand: [
-              card('hearts', 10),
-              card('clubs', 10),
-              card('diamonds', 10),
-              card('spades', 10),
-            ],
+            hand: [card('hearts', 10), card('clubs', 10), card('diamonds', 10), card('spades', 10)],
           },
           { id: 'C', hand: [card('diamonds', 6), card('hearts', 8)] },
         ],
@@ -487,9 +477,9 @@ describe('take', () => {
       expect(r2.state.players.find((p) => p.id === 'B')!.hand).toHaveLength(4);
       expect(r2.state.passedPlayerIds).toHaveLength(0);
       // DefenderTookCalled event emitted.
-      expect(
-        r2.events.some((e) => e.type === 'DefenderTookCalled' && e.defenderId === 'B'),
-      ).toBe(true);
+      expect(r2.events.some((e) => e.type === 'DefenderTookCalled' && e.defenderId === 'B')).toBe(
+        true,
+      );
       // BoutEnded must NOT have fired yet.
       expect(r2.events.some((e) => e.type === 'BoutEnded')).toBe(false);
     });
@@ -504,12 +494,7 @@ describe('take', () => {
           { id: 'A', hand: [card('hearts', 6), card('clubs', 6), card('spades', 6)] },
           {
             id: 'B',
-            hand: [
-              card('hearts', 10),
-              card('clubs', 10),
-              card('diamonds', 10),
-              card('spades', 10),
-            ],
+            hand: [card('hearts', 10), card('clubs', 10), card('diamonds', 10), card('spades', 10)],
           },
           { id: 'C', hand: [card('diamonds', 6), card('hearts', 8)] },
         ],
@@ -547,12 +532,7 @@ describe('take', () => {
           { id: 'A', hand: [card('hearts', 6), card('clubs', 6), card('spades', 6)] },
           {
             id: 'B',
-            hand: [
-              card('hearts', 10),
-              card('clubs', 10),
-              card('diamonds', 10),
-              card('spades', 10),
-            ],
+            hand: [card('hearts', 10), card('clubs', 10), card('diamonds', 10), card('spades', 10)],
           },
           { id: 'C', hand: [card('diamonds', 6), card('hearts', 8)] },
         ],
@@ -587,12 +567,7 @@ describe('take', () => {
           { id: 'A', hand: [card('hearts', 6), card('clubs', 6)] },
           {
             id: 'B',
-            hand: [
-              card('hearts', 10),
-              card('clubs', 10),
-              card('diamonds', 10),
-              card('spades', 10),
-            ],
+            hand: [card('hearts', 10), card('clubs', 10), card('diamonds', 10), card('spades', 10)],
           },
           { id: 'C', hand: [card('diamonds', 6), card('hearts', 8)] },
         ],
@@ -627,12 +602,7 @@ describe('take', () => {
           { id: 'A', hand: [card('hearts', 6), card('clubs', 14)] },
           {
             id: 'B',
-            hand: [
-              card('hearts', 10),
-              card('clubs', 10),
-              card('diamonds', 10),
-              card('spades', 10),
-            ],
+            hand: [card('hearts', 10), card('clubs', 10), card('diamonds', 10), card('spades', 10)],
           },
           { id: 'C', hand: [card('diamonds', 6), card('hearts', 8)] },
         ],
@@ -790,12 +760,7 @@ describe('take', () => {
           { id: 'A', hand: [card('hearts', 6), card('diamonds', 2)] },
           {
             id: 'B',
-            hand: [
-              card('hearts', 10),
-              card('clubs', 10),
-              card('diamonds', 10),
-              card('spades', 10),
-            ],
+            hand: [card('hearts', 10), card('clubs', 10), card('diamonds', 10), card('spades', 10)],
           },
           { id: 'C', hand: [card('clubs', 7), card('diamonds', 4)] },
         ],
@@ -822,9 +787,7 @@ describe('take', () => {
       const defenderHand = r4.state.players.find((p) => p.id === 'B')!.hand;
       expect(defenderHand.map((c) => c.id)).toContain('hearts-6');
       // Outcome event present and equals `taken`.
-      expect(
-        r4.events.some((e) => e.type === 'BoutEnded' && e.outcome === 'taken'),
-      ).toBe(true);
+      expect(r4.events.some((e) => e.type === 'BoutEnded' && e.outcome === 'taken')).toBe(true);
       // After take rotation: next attacker is the player after the defender (C).
       expect(r4.state.players[r4.state.currentAttackerIndex].id).toBe('C');
     });
@@ -854,9 +817,7 @@ describe('take', () => {
       expect(r2.state.boutNumber).toBe(2);
       // Both events present.
       expect(r2.events.some((e) => e.type === 'DefenderTookCalled')).toBe(true);
-      expect(
-        r2.events.some((e) => e.type === 'BoutEnded' && e.outcome === 'taken'),
-      ).toBe(true);
+      expect(r2.events.some((e) => e.type === 'BoutEnded' && e.outcome === 'taken')).toBe(true);
     });
   });
 });

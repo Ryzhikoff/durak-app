@@ -13,8 +13,15 @@ import type {
   GameParticipantPublic,
   GameSummary,
   LobbySettings,
+  SameCompositionResponse,
 } from '@durak/shared-types';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+
+/** Hard ceiling on `listSameComposition` to keep payloads predictable. */
+export const SAME_COMPOSITION_MAX_LIMIT = 50;
+/** Default `limit` for same-composition queries when callers omit it. */
+export const SAME_COMPOSITION_DEFAULT_LIMIT = 20;
 
 /**
  * Subset of Prisma's surface we touch. Kept loose so the controller specs
@@ -26,6 +33,12 @@ export interface GamesHistoryPrismaSlice {
     findMany(args: Record<string, unknown>): Promise<RawGame[]>;
     findUnique(args: { where: { id: string }; include: unknown }): Promise<RawGameDetail | null>;
   };
+  /**
+   * Raw SQL escape hatch used by {@link GamesHistoryService.listSameComposition}.
+   * The tagged-template typing is awkward to mirror exactly; we keep it loose
+   * so the service spec can stub it cheaply.
+   */
+  $queryRaw?: (...args: unknown[]) => Promise<Array<{ id: string }>>;
 }
 
 interface RawParticipant {
@@ -206,6 +219,89 @@ export class GamesHistoryService {
   async listLastForUser(userId: string, limit: number): Promise<GameSummary[]> {
     const result = await this.list({ page: 1, limit, playerId: userId });
     return result.items;
+  }
+
+  /**
+   * Phase 7B — list finished games where the participant set equals exactly
+   * the participant set of `referenceGameId` (same number of distinct userIds
+   * and same identities). Sorted by `finishedAt DESC`. Excludes the reference
+   * game itself.
+   *
+   * Returns `null` if the reference game is not a finished game in Postgres
+   * (active or unknown). Callers translate that to a 404.
+   */
+  async listSameComposition(
+    referenceGameId: string,
+    limitInput: number,
+  ): Promise<SameCompositionResponse | null> {
+    const prisma = this.prisma as unknown as GamesHistoryPrismaSlice;
+    const ref = await prisma.game.findUnique({
+      where: { id: referenceGameId },
+      include: {
+        participants: {
+          select: {
+            userId: true,
+            nicknameSnapshot: true,
+            avatarUrlSnapshot: true,
+            place: true,
+            isWinner: true,
+            isLoser: true,
+          },
+        },
+      },
+    });
+    if (!ref) return null;
+
+    const targetUserIds = Array.from(new Set(ref.participants.map((p) => p.userId))).sort();
+    const limit = Math.min(Math.max(1, Math.floor(limitInput)), SAME_COMPOSITION_MAX_LIMIT);
+
+    // Find game ids where the DISTINCT participant userId set, sorted asc,
+    // matches the reference set exactly. We rely on Postgres array_agg for the
+    // set comparison so the DB does the heavy lifting and we only round-trip
+    // ids back. `array_agg(DISTINCT ... ORDER BY ...)` yields a stable form
+    // that equality against a text[] literal can match against.
+    const raw = (
+      this.prisma as unknown as {
+        $queryRaw: (q: Prisma.Sql) => Promise<Array<{ id: string }>>;
+      }
+    ).$queryRaw;
+    const rows = await raw(Prisma.sql`
+      SELECT g.id
+      FROM "Game" g
+      WHERE g.id <> ${referenceGameId}
+        AND (
+          SELECT array_agg(DISTINCT gp."userId" ORDER BY gp."userId")
+          FROM "GameParticipant" gp
+          WHERE gp."gameId" = g.id
+        ) = ${targetUserIds}::text[]
+      ORDER BY g."finishedAt" DESC
+      LIMIT ${limit}
+    `);
+    const ids = rows.map((r) => r.id);
+    if (ids.length === 0) {
+      return { items: [], total: 0 };
+    }
+    const games = await prisma.game.findMany({
+      where: { id: { in: ids } },
+      orderBy: { finishedAt: 'desc' },
+      include: {
+        participants: {
+          select: {
+            userId: true,
+            nicknameSnapshot: true,
+            avatarUrlSnapshot: true,
+            place: true,
+            isWinner: true,
+            isLoser: true,
+          },
+          orderBy: { place: 'asc' },
+        },
+      },
+    });
+    return {
+      items: games.map((g) => toSummary(g)),
+      total: games.length,
+    };
   }
 }
 

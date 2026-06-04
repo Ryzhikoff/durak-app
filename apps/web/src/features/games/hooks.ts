@@ -10,7 +10,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { GAME_EVENTS } from '@durak/shared-types';
-import { fetchGame, listGames } from './api';
+import { getApiErrorCode } from '@/lib/api';
+import { fetchGame, fetchSameComposition, listGames, type FetchGameResponse } from './api';
 import {
   fetchChatHistory,
   gamesSocket,
@@ -20,7 +21,7 @@ import {
   subscribeGame,
   useGameSocket,
 } from './socket';
-import type { GameListQuery } from '@durak/shared-types';
+import type { GameDetail, GameListQuery } from '@durak/shared-types';
 import type {
   ChatMessage,
   ClientGameState,
@@ -44,14 +45,33 @@ export function useGames(query: GameListQuery) {
   });
 }
 
-/** REST-only fetch — used while the WS handshake is pending. */
+/**
+ * Phase 7B — REST bootstrap fetch. Returns the discriminated payload so the
+ * page can decide whether to render the live UI or the finished-game view.
+ */
 export function useGameSnapshot(id: string | undefined) {
-  return useQuery({
+  return useQuery<FetchGameResponse>({
     queryKey: [GAMES_QUERY_KEY, 'detail', id],
     queryFn: () => fetchGame(id as string),
     enabled: !!id,
     retry: false,
     staleTime: 5_000,
+  });
+}
+
+/**
+ * Phase 7B — past finished games played by the exact same set of participants.
+ * Backed by `GET /games/:id/same-composition`. Errors propagate as TanStack
+ * query state — typically 404 GAME_NOT_FOUND when the reference game isn't
+ * finished yet (active games / unknown ids).
+ */
+export function useSameComposition(id: string | undefined, limit?: number) {
+  return useQuery({
+    queryKey: [GAMES_QUERY_KEY, 'same-composition', id, limit ?? null],
+    queryFn: () => fetchSameComposition(id as string, limit),
+    enabled: !!id,
+    retry: false,
+    staleTime: 30_000,
   });
 }
 
@@ -107,6 +127,19 @@ function applyReaction(
   return touched ? next : messages;
 }
 
+export interface UseGameStateOptions {
+  /**
+   * When `false`, the hook short-circuits all WS work — no `game:subscribe`
+   * round-trip, no event listeners attached. The live cache is still read so
+   * any data seeded previously remains visible, but no new subscription is
+   * initiated. Useful for finished games where the REST snapshot is final and
+   * the WS would otherwise reject with `GAME_NOT_FOUND`/`GAME_FINISHED`.
+   *
+   * Defaults to `true` for backwards compatibility.
+   */
+  enabled?: boolean;
+}
+
 /**
  * Live game subscription. Returns the current `ClientGameState`, a sliding
  * window of recent domain events (for the toast feed) and convenience flags.
@@ -115,7 +148,11 @@ function applyReaction(
  * - Calls `game:subscribe` on connect (and on reconnect).
  * - Patches the cache on `game:state` / `game:events` / `game:over`.
  */
-export function useGameState(id: string | undefined) {
+export function useGameState(
+  id: string | undefined,
+  options: UseGameStateOptions = {},
+) {
+  const { enabled = true } = options;
   useGameSocket();
   const qc = useQueryClient();
   const [subscribeError, setSubscribeError] = useState<{
@@ -126,31 +163,35 @@ export function useGameState(id: string | undefined) {
   // REST bootstrap. Stored in a separate key so it doesn't fight the WS-driven
   // live cache during transitions.
   const snapshot = useGameSnapshot(id);
+  // Only the live branch of the discriminated REST payload seeds the live
+  // cache. The finished branch is consumed by `<GameDetailView>` directly.
+  const liveSnapshot =
+    snapshot.data?.kind === 'live' ? snapshot.data.state : null;
 
   // Seed the live cache from the snapshot.
   useEffect(() => {
-    if (!id || !snapshot.data) return;
+    if (!id || !liveSnapshot || !enabled) return;
     qc.setQueryData<LiveGameQueryData>(GAME_ROOM_KEY(id), (prev) =>
       prev
-        ? { ...prev, state: snapshot.data }
+        ? { ...prev, state: liveSnapshot }
         : {
-            state: snapshot.data,
+            state: liveSnapshot,
             recentEvents: [],
             unseenEvents: [],
             chatMessages: [],
           },
     );
-  }, [id, snapshot.data, qc]);
+  }, [id, liveSnapshot, qc, enabled]);
 
   const live = useQuery<LiveGameQueryData | undefined>({
     queryKey: id ? GAME_ROOM_KEY(id) : [GAMES_QUERY_KEY, 'live', '__missing__'],
     queryFn: () => undefined,
-    enabled: !!id,
+    enabled: !!id && enabled,
     staleTime: Infinity,
     initialData: () =>
-      snapshot.data
+      liveSnapshot && enabled
         ? {
-            state: snapshot.data,
+            state: liveSnapshot,
             recentEvents: [],
             unseenEvents: [],
             chatMessages: [],
@@ -159,7 +200,7 @@ export function useGameState(id: string | undefined) {
   });
 
   useEffect(() => {
-    if (!id) return;
+    if (!id || !enabled) return;
     const socket = gamesSocket;
 
     const onState = ({ state }: GameStateEvent) => {
@@ -267,7 +308,7 @@ export function useGameState(id: string | undefined) {
       socket.off(GAME_EVENTS.chatReaction, onChatReaction);
       socket.off('connect', trySubscribe);
     };
-  }, [id, qc]);
+  }, [id, qc, enabled]);
 
   /** Drain the unseen-events buffer (call after the UI has consumed them). */
   const acknowledgeEvents = useCallback(
@@ -305,9 +346,70 @@ export function useGameCommand(gameId: string | undefined) {
   );
 }
 
-/** Legacy stub — preserve the old `useGame` signature for non-game callers. */
-export function useGame(id: string | undefined) {
-  return useGameSnapshot(id);
+/**
+ * Phase 7B — discriminated game-page hook. Combines the REST bootstrap (so the
+ * page knows live vs finished) with the live WS subscription (`useGameState`)
+ * so callers can render the right view via a single switch over `kind`.
+ *
+ * - `loading` while the bootstrap is in flight.
+ * - `not_found` on 404 GAME_NOT_FOUND.
+ * - `error` for everything else.
+ * - `live` while the REST + WS pipeline is feeding fresh state.
+ * - `finished` for finished-game public detail.
+ */
+export type UseGameResult =
+  | { kind: 'loading' }
+  | { kind: 'not_found' }
+  | { kind: 'error'; error: unknown }
+  | {
+      kind: 'live';
+      state: ClientGameState;
+      unseenEvents: DomainEvent[];
+      acknowledgeEvents: (count: number) => void;
+      subscribeError: { code: string; message: string } | null;
+    }
+  | { kind: 'finished'; detail: GameDetail };
+
+export function useGame(id: string | undefined): UseGameResult {
+  // Both calls are unconditional so the rules-of-hooks invariant holds.
+  // `useGameSnapshot` is memoised by id; calling it from both `useGameState`
+  // and here yields the same cached result.
+  const snapshot = useGameSnapshot(id);
+  // Once the REST snapshot tells us the game is finished there is no live
+  // state to subscribe to — gate the WS work explicitly to avoid the wasted
+  // `game:subscribe` round-trip (and the `GAME_NOT_FOUND`/`GAME_FINISHED`
+  // ack it would receive).
+  const subscribeEnabled = snapshot.data?.kind !== 'finished';
+  const live = useGameState(id, { enabled: subscribeEnabled });
+  if (!id) {
+    return { kind: 'loading' };
+  }
+  // Finished games short-circuit on the REST snapshot — no WS work to wait on.
+  if (snapshot.data?.kind === 'finished') {
+    return { kind: 'finished', detail: snapshot.data.detail };
+  }
+  // Live data wins as soon as it shows up — the live cache is the canonical
+  // source while the WS is connected.
+  if (live.data) {
+    return {
+      kind: 'live',
+      state: live.data.state,
+      unseenEvents: live.data.unseenEvents,
+      acknowledgeEvents: live.acknowledgeEvents,
+      subscribeError: live.subscribeError,
+    };
+  }
+  if (snapshot.isPending) {
+    return { kind: 'loading' };
+  }
+  if (snapshot.error) {
+    const code = getApiErrorCode(snapshot.error);
+    if (code === 'GAME_NOT_FOUND') return { kind: 'not_found' };
+    return { kind: 'error', error: snapshot.error };
+  }
+  // Snapshot resolved live but the live cache hasn't been seeded yet — show
+  // a brief loading while the effect fires.
+  return { kind: 'loading' };
 }
 
 export interface UseGameChatResult {

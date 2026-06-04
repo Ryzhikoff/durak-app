@@ -84,6 +84,13 @@ vi.mock('./hooks', async () => {
   const actual = await vi.importActual<typeof import('./hooks')>('./hooks');
   return {
     ...actual,
+    useGame: () => ({
+      kind: 'live' as const,
+      state: mockState,
+      unseenEvents: [],
+      acknowledgeEvents: vi.fn(),
+      subscribeError: null,
+    }),
     useGameState: () => ({
       data: { state: mockState, recentEvents: [], unseenEvents: [] },
       snapshotError: null,
