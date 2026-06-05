@@ -29,6 +29,7 @@ import {
   type GameUserProfile,
   type GameUserProfiles,
 } from './game-redactor';
+import { GamesPauseService } from './games-pause.service';
 import {
   collectMetrics,
   type MetricDelta,
@@ -341,6 +342,7 @@ export class GamesService {
   constructor(
     private readonly redis: RedisService,
     private readonly prisma: PrismaService,
+    private readonly pause?: GamesPauseService,
   ) {}
 
   setEventBus(bus: GameEventBus): void {
@@ -398,6 +400,19 @@ export class GamesService {
       throw new NotFoundException({ code: 'GAME_NOT_FOUND', message: 'Game not found' });
     }
     return JSON.parse(raw) as GameState;
+  }
+
+  /**
+   * Look up the active game id for a given user via the reverse pointer.
+   * Returns null when the user is not seated in any live game.
+   */
+  async lookupActiveGameId(userId: string): Promise<string | null> {
+    try {
+      const raw = await this.redis.client.get(userInGameKey(userId));
+      return raw ?? null;
+    } catch {
+      return null;
+    }
   }
 
   /** Best-effort: returns null if missing. */
@@ -466,6 +481,20 @@ export class GamesService {
         // Same 404 we use for unrelated games — don't leak existence.
         throw new NotFoundException({ code: 'GAME_NOT_FOUND', message: 'Game not found' });
       }
+      // Phase 8 — block all commands while the game is paused due to a
+      // disconnect. Voting traffic uses a different event (`game:pause_vote`),
+      // so a `GAME_PAUSED` here strictly means "you cannot move pieces right
+      // now". The check sits inside the per-game lock so a reconnect that
+      // clears the pause races cleanly against the next command.
+      if (this.pause) {
+        const info = await this.pause.get(gameId);
+        if (info) {
+          throw new BadRequestException({
+            code: 'GAME_PAUSED',
+            message: 'Game is paused — waiting for disconnected players',
+          });
+        }
+      }
       // The command must be attributed to the caller. We never trust the
       // client-supplied playerId — it's enforced server-side.
       if (command.playerId !== viewerUserId) {
@@ -511,6 +540,70 @@ export class GamesService {
         this.bus.gameUpdated(nextState, events);
       }
       return { state: nextState, events };
+    });
+  }
+
+  // -------- pause concede (Phase 8) --------
+
+  /**
+   * Force-finish a game by concede: every `concededUserIds` entry is treated
+   * as a forfeit. We DO NOT route this through the engine reducer (no
+   * concede command exists there and we don't want to introduce one mid-
+   * stream). Instead we synthesise a final `game_over` state directly:
+   *
+   *  - Players that already finished keep their position.
+   *  - Conceded players are placed at the very bottom (loser of the game is
+   *    the FIRST conceded id by stable order, mirroring the durak rule of a
+   *    single losing seat). When multiple players concede simultaneously they
+   *    all rank last (loserId = first by seat order, others rank just above).
+   *
+   * The persistence + finalization path is identical to a natural game-over
+   * (Postgres write, rating update, etc.), so downstream cache invalidation
+   * Just Works.
+   */
+  async concedeGame(gameId: string, concededUserIds: string[]): Promise<GameState | null> {
+    return this.withLock(gameId, async () => {
+      const state = await this.tryGet(gameId);
+      if (!state) return null;
+      if (state.status === 'game_over') return state;
+      if (concededUserIds.length === 0) return state;
+      const conceded = new Set(concededUserIds);
+      // Build a finishedPlayers list with the survivors first (preserving
+      // existing finish order), then the conceded players in seat order.
+      const finishedExisting = state.finishedPlayers.slice();
+      const finishedExistingSet = new Set(finishedExisting);
+      const survivors = state.players
+        .map((p) => p.id)
+        .filter((id) => !conceded.has(id) && !finishedExistingSet.has(id));
+      // Survivors who haven't yet finished are "winners" by virtue of
+      // outlasting the concede. They go at the end of the finished list above
+      // the loser tier.
+      const ordered = [...finishedExisting, ...survivors];
+      // Loser is the first conceded id in seat order. If there are several
+      // conceded users they share the bottom rank — the rating updater treats
+      // them by position, so we keep them adjacent.
+      const concededSeatOrdered = state.players.map((p) => p.id).filter((id) => conceded.has(id));
+      const loserPlayerId = concededSeatOrdered[0] ?? null;
+      const finalState: GameState = {
+        ...state,
+        status: 'game_over',
+        // Everyone but the loser sits in the finished list ahead of them.
+        finishedPlayers: [...ordered, ...concededSeatOrdered.slice(1)],
+        loserPlayerId,
+      };
+      await this.persistMutation(finalState, []);
+      // Pause is now meaningless — drop the meta-state so a returning loser's
+      // client doesn't see a stale pause overlay.
+      if (this.pause) {
+        await this.pause.clear(gameId).catch(() => undefined);
+      }
+      try {
+        await this.finalizeGameWithRetry(finalState);
+      } catch (err) {
+        this.logger.error({ err, gameId }, 'concedeGame: finalization failed');
+      }
+      this.bus.gameEnded(finalState, []);
+      return finalState;
     });
   }
 

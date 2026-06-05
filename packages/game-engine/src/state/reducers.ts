@@ -503,20 +503,27 @@ function reduceNoticeCheat(
     const ok = entry.beatenBy ? beats(entry.beatenBy, entry.card, state.trumpSuit) : true;
     succeeded = !ok;
   } else {
-    // Validate the attack rank against other cards on the table (every
-    // attack must match a rank already present). The first attack of a bout
-    // is always legal (any card may open).
-    const firstEntry = state.table.attacks[0];
-    if (firstEntry && firstEntry.id === entry.id) {
+    // Validate the attack rank against cards that were on the table BEFORE
+    // this one was placed. The first attack of a bout is always legal (any
+    // card may open). It's critical to use entries PRECEDING this one (not
+    // every other entry on the table): a later, legitimate throw of the same
+    // rank as a fake card must not retroactively launder the fake — e.g. if
+    // an attacker illegally throws Q on a "3"-bout, then a third player
+    // genuinely adds a 3, the Q itself stays illegal even though the table
+    // now contains both Q-rank and 3-rank.
+    const entryIndex = state.table.attacks.findIndex((a) => a.id === entry.id);
+    if (entryIndex <= 0) {
+      // Either not found (shouldn't happen — we just resolved it) or the
+      // very first card of the bout, which opens the round and is always
+      // legal.
       succeeded = false;
     } else {
-      // Build "ranks on table" snapshot excluding this entry.
       const card = entry.card;
       if (!isStandard(card)) {
         succeeded = false; // jokers always legal
       } else {
-        const otherRanks = ranksExcluding(state, entry.id);
-        succeeded = !otherRanks.has(card.rank);
+        const previousRanks = ranksBeforeIndex(state, entryIndex);
+        succeeded = !previousRanks.has(card.rank);
       }
     }
   }
@@ -597,15 +604,19 @@ function reduceNoticeCheat(
 }
 
 /**
- * Returns the set of ranks present on the table excluding the given entry id.
- * Used to validate a "supporting" throw (must match a rank already on the
- * table). Jokers contribute no rank.
+ * Returns the set of ranks visible on the table BEFORE the entry at the given
+ * array index was placed. Used by cheat-notice validation so a later legitimate
+ * throw of the same rank cannot retroactively launder an earlier fake card.
+ * Jokers contribute no rank.
  */
-function ranksExcluding(state: GameState, entryId: string): Set<number> {
+function ranksBeforeIndex(state: GameState, entryIndex: number): Set<number> {
   const ranks = new Set<number>();
-  for (const entry of state.table.attacks) {
-    if (entry.id === entryId) continue;
+  for (let i = 0; i < entryIndex; i++) {
+    const entry = state.table.attacks[i];
     if (isStandard(entry.card)) ranks.add(entry.card.rank);
+    // A beat played before this entry was added would also be on the table at
+    // throw-time, but beats are only legal once their attack has been placed,
+    // so any earlier-indexed entry's beat happened strictly before this entry.
     if (entry.beatenBy && isStandard(entry.beatenBy)) ranks.add(entry.beatenBy.rank);
   }
   return ranks;

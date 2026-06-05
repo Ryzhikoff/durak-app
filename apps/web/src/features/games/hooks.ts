@@ -18,9 +18,11 @@ import {
   sendChatMessage,
   sendChatReaction,
   sendGameCommand,
+  sendPauseVote,
   subscribeGame,
   useGameSocket,
 } from './socket';
+import { ME_QUERY_KEY } from '@/features/auth/hooks';
 import type { GameDetail, GameListQuery } from '@durak/shared-types';
 import type {
   ChatMessage,
@@ -29,9 +31,16 @@ import type {
   GameChatMessageEvent,
   GameChatReactionEvent,
   GameCommand,
+  GameConcedeCompletedPayload,
   GameEventsEvent,
   GameOverEvent,
+  GamePausedPayload,
+  GamePauseVoteStartedPayload,
+  GamePauseVoteUpdatePayload,
+  GamePauseWaitExtendedPayload,
   GameStateEvent,
+  PauseInfo,
+  PauseVote,
 } from './types';
 
 export const GAMES_QUERY_KEY = 'games' as const;
@@ -85,6 +94,8 @@ export interface LiveGameQueryData {
   unseenEvents: DomainEvent[];
   /** Chat backlog kept in sync via `game:chat_message` broadcasts. */
   chatMessages: ChatMessage[];
+  /** Phase 8 — current disconnect-pause state. Null when not paused. */
+  pauseInfo: PauseInfo | null;
 }
 
 const CHAT_BUFFER_LIMIT = 200;
@@ -167,21 +178,27 @@ export function useGameState(
   // cache. The finished branch is consumed by `<GameDetailView>` directly.
   const liveSnapshot =
     snapshot.data?.kind === 'live' ? snapshot.data.state : null;
+  // Phase 8 — the REST snapshot now also carries the pause meta-state so the
+  // overlay renders BEFORE the WS subscribe ack lands. Null when no pause is
+  // currently active for this game.
+  const snapshotPauseInfo =
+    snapshot.data?.kind === 'live' ? (snapshot.data.pauseInfo ?? null) : null;
 
   // Seed the live cache from the snapshot.
   useEffect(() => {
     if (!id || !liveSnapshot || !enabled) return;
     qc.setQueryData<LiveGameQueryData>(GAME_ROOM_KEY(id), (prev) =>
       prev
-        ? { ...prev, state: liveSnapshot }
+        ? { ...prev, state: liveSnapshot, pauseInfo: prev.pauseInfo ?? snapshotPauseInfo }
         : {
             state: liveSnapshot,
             recentEvents: [],
             unseenEvents: [],
             chatMessages: [],
+            pauseInfo: snapshotPauseInfo,
           },
     );
-  }, [id, liveSnapshot, qc, enabled]);
+  }, [id, liveSnapshot, snapshotPauseInfo, qc, enabled]);
 
   const live = useQuery<LiveGameQueryData | undefined>({
     queryKey: id ? GAME_ROOM_KEY(id) : [GAMES_QUERY_KEY, 'live', '__missing__'],
@@ -195,6 +212,7 @@ export function useGameState(
             recentEvents: [],
             unseenEvents: [],
             chatMessages: [],
+            pauseInfo: snapshotPauseInfo,
           }
         : undefined,
   });
@@ -212,6 +230,7 @@ export function useGameState(
               recentEvents: [],
               unseenEvents: [],
               chatMessages: [],
+              pauseInfo: null,
             },
       );
     };
@@ -238,8 +257,91 @@ export function useGameState(
           recentEvents: [...baseRecent, ...events].slice(-RECENT_EVENTS_LIMIT),
           unseenEvents: [...baseUnseen, ...events],
           chatMessages: prev?.chatMessages ?? [],
+          // A game ending erases any pending pause overlay — the result modal
+          // is now the source of truth.
+          pauseInfo: null,
         };
       });
+      // Backend has just dropped `userInGame:<userId>`, so the "active game"
+      // banner in AppShell needs to re-evaluate. Refetching /auth/me clears
+      // the user's `currentGameId` without requiring an F5.
+      void qc.invalidateQueries({ queryKey: ME_QUERY_KEY });
+    };
+    const onPaused = (payload: GamePausedPayload) => {
+      qc.setQueryData<LiveGameQueryData>(GAME_ROOM_KEY(id), (prev) => {
+        if (!prev) return prev;
+        // A paused event always re-establishes the disconnected set, even if
+        // a previous pause was already tracked — the server is the source of
+        // truth here.
+        const next: PauseInfo = {
+          disconnectedUserIds: payload.disconnectedUserIds,
+          pausedAt: payload.pausedAt,
+          timeoutAt: payload.timeoutAt,
+          voteOpen: prev.pauseInfo?.voteOpen ?? false,
+          voteOpenedAt: prev.pauseInfo?.voteOpenedAt ?? null,
+          votes: prev.pauseInfo?.votes ?? {},
+        };
+        return { ...prev, pauseInfo: next };
+      });
+    };
+    const onResumed = () => {
+      qc.setQueryData<LiveGameQueryData>(GAME_ROOM_KEY(id), (prev) =>
+        prev ? { ...prev, pauseInfo: null } : prev,
+      );
+    };
+    const onVoteStarted = (payload: GamePauseVoteStartedPayload) => {
+      qc.setQueryData<LiveGameQueryData>(GAME_ROOM_KEY(id), (prev) => {
+        if (!prev) return prev;
+        // Open the vote window. timeoutAt drives the on-screen countdown for
+        // the voting phase itself — server resets it to "now + grace" before
+        // emitting this event.
+        const nowIso = new Date().toISOString();
+        const next: PauseInfo = {
+          disconnectedUserIds: payload.disconnectedUserIds,
+          pausedAt: prev.pauseInfo?.pausedAt ?? nowIso,
+          timeoutAt:
+            prev.pauseInfo?.timeoutAt ??
+            new Date(Date.now() + payload.timeoutSec * 1000).toISOString(),
+          voteOpen: true,
+          voteOpenedAt: nowIso,
+          votes: {},
+        };
+        return { ...prev, pauseInfo: next };
+      });
+    };
+    const onVoteUpdate = (payload: GamePauseVoteUpdatePayload) => {
+      qc.setQueryData<LiveGameQueryData>(GAME_ROOM_KEY(id), (prev) => {
+        if (!prev?.pauseInfo) return prev;
+        return {
+          ...prev,
+          pauseInfo: { ...prev.pauseInfo, votes: payload.votes },
+        };
+      });
+    };
+    const onWaitExtended = (payload: GamePauseWaitExtendedPayload) => {
+      qc.setQueryData<LiveGameQueryData>(GAME_ROOM_KEY(id), (prev) => {
+        if (!prev?.pauseInfo) return prev;
+        return {
+          ...prev,
+          pauseInfo: {
+            ...prev.pauseInfo,
+            voteOpen: false,
+            voteOpenedAt: null,
+            votes: {},
+            pausedAt: new Date().toISOString(),
+            timeoutAt: payload.timeoutAt,
+          },
+        };
+      });
+    };
+    const onConcedeCompleted = (_payload: GameConcedeCompletedPayload) => {
+      // The game-over broadcast that follows will handle the actual state
+      // transition. We just drop the overlay so the user is never left
+      // staring at it while the game-over modal opens behind.
+      qc.setQueryData<LiveGameQueryData>(GAME_ROOM_KEY(id), (prev) =>
+        prev ? { ...prev, pauseInfo: null } : prev,
+      );
+      void _payload;
     };
     const onChatMessage = ({ message }: GameChatMessageEvent) => {
       qc.setQueryData<LiveGameQueryData>(GAME_ROOM_KEY(id), (prev) => {
@@ -259,12 +361,18 @@ export function useGameState(
     socket.on(GAME_EVENTS.over, onOver);
     socket.on(GAME_EVENTS.chatMessage, onChatMessage);
     socket.on(GAME_EVENTS.chatReaction, onChatReaction);
+    socket.on(GAME_EVENTS.paused, onPaused);
+    socket.on(GAME_EVENTS.resumed, onResumed);
+    socket.on(GAME_EVENTS.pauseVoteStarted, onVoteStarted);
+    socket.on(GAME_EVENTS.pauseVoteUpdate, onVoteUpdate);
+    socket.on(GAME_EVENTS.pauseWaitExtended, onWaitExtended);
+    socket.on(GAME_EVENTS.concedeCompleted, onConcedeCompleted);
 
     let cancelled = false;
     const trySubscribe = () => {
       if (cancelled) return;
       subscribeGame(id)
-        .then(({ state, recentEvents, chatHistory }) => {
+        .then(({ state, recentEvents, chatHistory, pauseInfo }) => {
           qc.setQueryData<LiveGameQueryData>(GAME_ROOM_KEY(id), (prev) => ({
             state,
             recentEvents:
@@ -276,6 +384,10 @@ export function useGameState(
             // best source of truth. Local in-flight messages already in `prev`
             // get re-merged by id de-dup.
             chatMessages: appendChat(chatHistory ?? [], prev?.chatMessages ?? []),
+            // Server-supplied pause state wins on resubscribe. Null clears
+            // any stale local overlay (e.g. when we missed the resume event
+            // during a network blip).
+            pauseInfo: pauseInfo ?? null,
           }));
           setSubscribeError(null);
         })
@@ -306,6 +418,12 @@ export function useGameState(
       socket.off(GAME_EVENTS.over, onOver);
       socket.off(GAME_EVENTS.chatMessage, onChatMessage);
       socket.off(GAME_EVENTS.chatReaction, onChatReaction);
+      socket.off(GAME_EVENTS.paused, onPaused);
+      socket.off(GAME_EVENTS.resumed, onResumed);
+      socket.off(GAME_EVENTS.pauseVoteStarted, onVoteStarted);
+      socket.off(GAME_EVENTS.pauseVoteUpdate, onVoteUpdate);
+      socket.off(GAME_EVENTS.pauseWaitExtended, onWaitExtended);
+      socket.off(GAME_EVENTS.concedeCompleted, onConcedeCompleted);
       socket.off('connect', trySubscribe);
     };
   }, [id, qc, enabled]);
@@ -367,6 +485,7 @@ export type UseGameResult =
       unseenEvents: DomainEvent[];
       acknowledgeEvents: (count: number) => void;
       subscribeError: { code: string; message: string } | null;
+      pauseInfo: PauseInfo | null;
     }
   | { kind: 'finished'; detail: GameDetail };
 
@@ -397,6 +516,7 @@ export function useGame(id: string | undefined): UseGameResult {
       unseenEvents: live.data.unseenEvents,
       acknowledgeEvents: live.acknowledgeEvents,
       subscribeError: live.subscribeError,
+      pauseInfo: live.data.pauseInfo,
     };
   }
   if (snapshot.isPending) {
@@ -524,4 +644,56 @@ export function useGameChat(gameId: string | undefined): UseGameChatResult {
   }, [gameId, qc]);
 
   return { messages, send, react, isSending, unreadCount, markAllRead, refresh };
+}
+
+export interface UsePauseVoteResult {
+  /** Pause meta-state read from the live cache. Null while not paused. */
+  pauseInfo: PauseInfo | null;
+  /** Vote already cast by the current viewer, if any. */
+  myVote: PauseVote | null;
+  /** Cast a vote. Throws a SocketAckError-style error on rejection. */
+  vote: (choice: PauseVote) => Promise<void>;
+  /** True while the most recent vote is awaiting the server ack. */
+  isSubmitting: boolean;
+}
+
+/**
+ * Hook bound to a specific live game's pause state. Reads `pauseInfo` from
+ * the shared TanStack-Query cache (same key as {@link useGameState}) and
+ * exposes a `vote()` helper that forwards to the WS gateway.
+ *
+ * Designed for the overlay component — does NOT trigger its own subscription
+ * (the parent's `useGameState` already keeps the cache fresh).
+ */
+export function usePauseVote(
+  gameId: string | undefined,
+  myUserId: string | undefined,
+): UsePauseVoteResult {
+  const live = useQuery<LiveGameQueryData | undefined>({
+    queryKey: gameId
+      ? GAME_ROOM_KEY(gameId)
+      : [GAMES_QUERY_KEY, 'live', '__pause_missing__'],
+    queryFn: () => undefined,
+    enabled: !!gameId,
+    staleTime: Infinity,
+  });
+  const pauseInfo = live.data?.pauseInfo ?? null;
+  const myVote: PauseVote | null =
+    myUserId && pauseInfo?.votes[myUserId] ? pauseInfo.votes[myUserId] : null;
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const vote = useCallback(
+    async (choice: PauseVote): Promise<void> => {
+      if (!gameId) throw new Error('GAME_ID_MISSING');
+      setIsSubmitting(true);
+      try {
+        await sendPauseVote(gameId, choice);
+      } finally {
+        setIsSubmitting(false);
+      }
+    },
+    [gameId],
+  );
+
+  return { pauseInfo, myVote, vote, isSubmitting };
 }

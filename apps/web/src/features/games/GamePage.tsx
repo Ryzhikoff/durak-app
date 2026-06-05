@@ -18,9 +18,10 @@ import { Alert, Button, Card, Modal, Spinner } from '@/components/ui';
 import { getApiErrorMessage } from '@/lib/api';
 import { SocketAckError } from '@/lib/socket';
 import { useAuthStore } from '@/stores/auth.store';
-import { useGame, useGameChat, useGameCommand } from './hooks';
+import { useGame, useGameChat, useGameCommand, usePauseVote } from './hooks';
 import { GameChatPanel } from './GameChatPanel';
 import { GameDetailView } from './GameDetailView';
+import { PauseOverlay } from './PauseOverlay';
 import {
   ATTACK_DROP_ID_PREFIX,
   GameTable,
@@ -48,6 +49,7 @@ import type {
   ClientGamePlayer,
   DomainEvent,
   GameCommand,
+  PauseInfo,
 } from './types';
 
 export function GamePage() {
@@ -87,6 +89,7 @@ export function GamePage() {
           unseenEvents={game.unseenEvents}
           onAcknowledgeEvents={game.acknowledgeEvents}
           subscribeError={game.subscribeError}
+          pauseInfo={game.pauseInfo}
         />
       );
   }
@@ -98,6 +101,7 @@ interface GameRoomProps {
   unseenEvents: DomainEvent[];
   onAcknowledgeEvents: (count: number) => void;
   subscribeError: { code: string; message: string } | null;
+  pauseInfo: PauseInfo | null;
 }
 
 function GameRoom({
@@ -106,6 +110,7 @@ function GameRoom({
   unseenEvents,
   onAcknowledgeEvents,
   subscribeError,
+  pauseInfo,
 }: GameRoomProps) {
   const { t } = useTranslation();
   const me = useAuthStore((s) => s.user);
@@ -136,6 +141,7 @@ function GameRoom({
   );
 
   const myUserId = state.myUserId || me?.id || '';
+  const pauseVote = usePauseVote(gameId, myUserId);
   const mySeat = useMemo(
     () => state.players.find((p) => p.id === myUserId) ?? null,
     [state.players, myUserId],
@@ -193,6 +199,14 @@ function GameRoom({
   const run = useCallback(
     async (command: GameCommand) => {
       if (sending) return;
+      // Phase 8 — short-circuit while the game is paused. The server would
+      // reject with GAME_PAUSED anyway; bailing here avoids a needless
+      // round-trip and shows the user immediate feedback in the same
+      // error slot the regular path uses.
+      if (pauseInfo) {
+        setError(t('game.errors.GAME_PAUSED'));
+        return;
+      }
       setSending(true);
       setError(null);
       try {
@@ -203,7 +217,7 @@ function GameRoom({
         setSending(false);
       }
     },
-    [sendCommand, t, sending],
+    [sendCommand, t, sending, pauseInfo],
   );
 
   // -------- which drop zones are "active" right now --------
@@ -616,6 +630,17 @@ function GameRoom({
           >
             {error}
           </Alert>
+        ) : null}
+
+        {pauseInfo ? (
+          <PauseOverlay
+            pauseInfo={pauseInfo}
+            state={state}
+            myUserId={myUserId}
+            myVote={pauseVote.myVote}
+            isSubmitting={pauseVote.isSubmitting}
+            onVote={pauseVote.vote}
+          />
         ) : null}
 
         {/* Opponents row + corner meta */}

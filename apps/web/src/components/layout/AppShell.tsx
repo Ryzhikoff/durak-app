@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, LogOut, Menu, ShieldCheck, Sliders, UserCircle2, X } from 'lucide-react';
+import {
+  ChevronDown,
+  LogOut,
+  Menu,
+  Play,
+  ShieldCheck,
+  Sliders,
+  UserCircle2,
+  X,
+} from 'lucide-react';
 import clsx from 'clsx';
 import { useAuthStore } from '@/stores/auth.store';
 import { useLogout } from '@/features/auth/hooks';
@@ -169,6 +178,11 @@ export function AppShell() {
           </Button>
         </div>
 
+        <ActiveGameBanner
+          currentGameId={user.currentGameId}
+          currentPath={location.pathname}
+        />
+
         {mobileOpen ? (
           <nav className="border-t border-border bg-surface px-4 py-3 sm:hidden">
             <div className="mb-3 flex items-center gap-3">
@@ -239,6 +253,51 @@ function MenuLink({
       {icon}
       {children}
     </NavLink>
+  );
+}
+
+/**
+ * Sticky banner shown under the AppShell header whenever the user has an active
+ * game (per /auth/me's `currentGameId`) but isn't currently on its page. Tapping
+ * the CTA jumps them straight into `/games/<currentGameId>`. The banner self-
+ * hides when:
+ *   - there's no active game, or
+ *   - the user already navigated to its game page.
+ * Lives inside the sticky header element so it scrolls with the brand row and
+ * never floats over content.
+ */
+function ActiveGameBanner({
+  currentGameId,
+  currentPath,
+}: {
+  currentGameId: string | null;
+  currentPath: string;
+}) {
+  const { t } = useTranslation();
+  if (!currentGameId) return null;
+  // Match `/games/<id>` and `/games/<id>/...` so a sub-route still hides it.
+  const gamePath = `/games/${currentGameId}`;
+  if (currentPath === gamePath || currentPath.startsWith(`${gamePath}/`)) {
+    return null;
+  }
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="border-t border-accent/30 bg-accent/15 text-text"
+    >
+      <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2 px-4 py-2">
+        <div className="flex items-center gap-2 text-sm">
+          <Play className="h-4 w-4 text-accent" aria-hidden="true" />
+          <span className="font-medium">{t('nav.activeGameBanner.title')}</span>
+        </div>
+        <Link to={gamePath}>
+          <Button variant="primary" size="sm">
+            {t('nav.activeGameBanner.cta')}
+          </Button>
+        </Link>
+      </div>
+    </div>
   );
 }
 

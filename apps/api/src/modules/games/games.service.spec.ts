@@ -226,6 +226,21 @@ function makeService(redis: FakeRedis, prisma: unknown): GamesService {
   return new GamesService({ client: redis } as unknown as never, prisma as never);
 }
 
+/**
+ * Helper for Phase 8 tests: same as `makeService` but with the optional pause
+ * collaborator injected. The pause service shares the same FakeRedis so
+ * cross-call state stays consistent.
+ */
+async function makeServiceWithPause(
+  redis: FakeRedis,
+  prisma: unknown,
+): Promise<{ svc: GamesService; pause: import('./games-pause.service').GamesPauseService }> {
+  const { GamesPauseService } = await import('./games-pause.service');
+  const pause = new GamesPauseService({ client: redis } as unknown as never);
+  const svc = new GamesService({ client: redis } as unknown as never, prisma as never, pause);
+  return { svc, pause };
+}
+
 const USER_A: FakePrismaUser = {
   id: 'ua',
   nickname: 'Alice',
@@ -809,5 +824,99 @@ describe('GamesService.finalizeGame', () => {
     // gamesPlayed bumped by exactly 1 for each player.
     expect(users.ua.gamesPlayed).toBe(1);
     expect(users.ub.gamesPlayed).toBe(1);
+  });
+});
+
+describe('GamesService Phase 8 — pause integration', () => {
+  it('rejects commands with GAME_PAUSED while the game is paused', async () => {
+    const redis = new FakeRedis();
+    const { svc, pause } = await makeServiceWithPause(
+      redis,
+      makePrismaStub({ ua: USER_A, ub: USER_B }),
+    );
+    const { gameId, state } = await svc.createFromLobby(makeLobby());
+    // Simulate Bob dropping out: mark him disconnected.
+    await pause.markDisconnected(gameId, 'ub');
+    const attacker = state.players[state.currentAttackerIndex];
+    const card = attacker.hand[0];
+    await expect(
+      svc.applyGameCommand(gameId, attacker.id, {
+        type: 'attack',
+        playerId: attacker.id,
+        cardId: card.id,
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'GAME_PAUSED' }),
+    });
+  });
+
+  it('lets commands through once the pause is cleared', async () => {
+    const redis = new FakeRedis();
+    const { svc, pause } = await makeServiceWithPause(
+      redis,
+      makePrismaStub({ ua: USER_A, ub: USER_B }),
+    );
+    const { gameId, state } = await svc.createFromLobby(makeLobby());
+    await pause.markDisconnected(gameId, 'ub');
+    await pause.markReconnected(gameId, 'ub');
+    const attacker = state.players[state.currentAttackerIndex];
+    const card = attacker.hand[0];
+    const out = await svc.applyGameCommand(gameId, attacker.id, {
+      type: 'attack',
+      playerId: attacker.id,
+      cardId: card.id,
+    });
+    expect(out.events.length).toBeGreaterThan(0);
+  });
+});
+
+describe('GamesService.concedeGame', () => {
+  it('finalises the game with the conceded user as the loser', async () => {
+    const redis = new FakeRedis();
+    // Use a non-finalising prisma stub so the test exercises only the engine
+    // wrapper. The finalisation path is covered separately and uses a $tx.
+    const prismaStub = {
+      ...makePrismaStub({ ua: USER_A, ub: USER_B }),
+      ratingConfig: { findUnique: vi.fn(async () => null) },
+      $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+        fn({
+          game: {
+            findUnique: vi.fn(async () => ({ id: 'x' })),
+            create: vi.fn(async () => undefined),
+          },
+          gameParticipant: { create: vi.fn(async () => undefined) },
+          ratingHistory: { create: vi.fn(async () => undefined) },
+          user: { update: vi.fn(async () => undefined) },
+        }),
+      ),
+    };
+    const { svc, pause } = await makeServiceWithPause(redis, prismaStub);
+    const ended: Array<{ loserPlayerId: string | null }> = [];
+    svc.setEventBus({
+      gameUpdated: () => undefined,
+      gameEnded: (s) => ended.push({ loserPlayerId: s.loserPlayerId }),
+      chatMessage: () => undefined,
+      chatReaction: () => undefined,
+    });
+    const { gameId } = await svc.createFromLobby(makeLobby());
+    await pause.markDisconnected(gameId, 'ub');
+    const final = await svc.concedeGame(gameId, ['ub']);
+    expect(final?.status).toBe('game_over');
+    expect(final?.loserPlayerId).toBe('ub');
+    // Survivor sits ahead of the loser in finishedPlayers.
+    expect(final?.finishedPlayers[0]).toBe('ua');
+    // Bus fires the game-ended notification.
+    expect(ended).toEqual([{ loserPlayerId: 'ub' }]);
+    // Pause meta-state is cleared (so a returning loser doesn't see a stale
+    // overlay).
+    expect(await pause.get(gameId)).toBeNull();
+  });
+
+  it('is a no-op when no users are conceded', async () => {
+    const redis = new FakeRedis();
+    const { svc } = await makeServiceWithPause(redis, makePrismaStub({ ua: USER_A, ub: USER_B }));
+    const { gameId, state } = await svc.createFromLobby(makeLobby());
+    const final = await svc.concedeGame(gameId, []);
+    expect(final?.status).toBe(state.status);
   });
 });

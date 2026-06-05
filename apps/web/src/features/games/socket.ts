@@ -15,6 +15,7 @@ import type {
   ChatReactionUpdate,
   GameCommand,
   GameSubscribePayload,
+  PauseVote,
 } from './types';
 
 export const gamesSocket: Socket = io(GAME_NAMESPACE, {
@@ -91,4 +92,16 @@ export function sendChatReaction(
     messageId,
     emoji,
   });
+}
+
+/**
+ * Phase 8 — cast a vote during the disconnect-pause's voting window. Resolves
+ * with `{ ok: true }`; rejects with a `SocketAckError` carrying the server
+ * code (`VOTE_NOT_ALLOWED`, `GAME_NOT_FOUND`, …) when the vote is refused.
+ */
+export function sendPauseVote(
+  gameId: string,
+  vote: PauseVote,
+): Promise<{ ok: true }> {
+  return emitWithAck(gamesSocket, GAME_EVENTS.pauseVote, { gameId, vote });
 }

@@ -16,6 +16,7 @@ import type {
   ChatMessage,
   ChatReactionUpdate,
   LobbySettings,
+  PauseInfo,
 } from '@durak/shared-types';
 
 export type {
@@ -29,7 +30,19 @@ export type {
   Table,
 } from '@durak/game-engine';
 
-export type { ChatMessage, ChatMessageReply, ChatReactionUpdate } from '@durak/shared-types';
+export type {
+  ChatMessage,
+  ChatMessageReply,
+  ChatReactionUpdate,
+  GameConcedeCompletedPayload,
+  GamePausedPayload,
+  GamePauseVoteStartedPayload,
+  GamePauseVoteUpdatePayload,
+  GamePauseWaitExtendedPayload,
+  GameResumedPayload,
+  PauseInfo,
+  PauseVote,
+} from '@durak/shared-types';
 
 /** Mirrors `apps/api/src/modules/games/game-redactor.ts:ClientGamePlayer`. */
 export interface ClientGamePlayer {
@@ -72,6 +85,8 @@ export interface GameSubscribePayload {
   recentEvents: DomainEvent[];
   /** Last ~100 chat messages, oldest first. Empty when there's no history yet. */
   chatHistory: ChatMessage[];
+  /** Phase 8 — current pause meta-state. Null when the game isn't paused. */
+  pauseInfo: PauseInfo | null;
 }
 
 export interface GameChatMessageEvent {

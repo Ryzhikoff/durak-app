@@ -15,6 +15,13 @@ export interface User {
   cardBackId: string;
   randomCardBack: boolean;
   customCardBackUrl: string | null;
+  /**
+   * If the user currently participates in a live (non-finished) game, this is
+   * the gameId. Set on /auth/me and /auth/login responses so the UI can offer
+   * a "return to game" affordance after re-login or on a different device.
+   * Null when no active game exists for the user.
+   */
+  currentGameId: string | null;
 }
 
 export interface AuthMeResponse {
@@ -459,6 +466,8 @@ export const GAME_EVENTS = {
   chatSend: 'game:chat_send',
   chatFetch: 'game:chat_fetch',
   chatReact: 'game:chat_react',
+  /** Phase 8 — cast a vote during a disconnect pause's voting window. */
+  pauseVote: 'game:pause_vote',
   // Server -> Client (per-game room)
   state: 'game:state',
   events: 'game:events',
@@ -473,6 +482,13 @@ export const GAME_EVENTS = {
    * the full personalised state.
    */
   overPublic: 'game:over_public',
+  /** Phase 8 — disconnect-pause lifecycle. */
+  paused: 'game:paused',
+  resumed: 'game:resumed',
+  pauseVoteStarted: 'game:pause_vote_started',
+  pauseVoteUpdate: 'game:pause_vote_update',
+  pauseWaitExtended: 'game:pause_wait_extended',
+  concedeCompleted: 'game:concede_completed',
 } as const;
 
 export type GameEventName = (typeof GAME_EVENTS)[keyof typeof GAME_EVENTS];
@@ -483,6 +499,88 @@ export interface GameOverPublicPayload {
   /** ISO 8601 timestamp of finalization. */
   finishedAt: string;
 }
+
+// ---------- Live games — disconnect pause (Phase 8) ----------
+
+/**
+ * Vote options offered to active players once the disconnect grace-window has
+ * elapsed without the missing players returning.
+ */
+export type PauseVote = 'wait_more' | 'concede';
+
+/**
+ * Pause meta-state stored in Redis under `game:<id>:pause`. Set whenever at
+ * least one seat is currently disconnected; cleared as soon as every seat is
+ * reconnected (or when the game ends).
+ */
+export interface PauseInfo {
+  /** Seats currently without an active socket on the game room. */
+  disconnectedUserIds: string[];
+  /** ISO 8601 — when the most recent disconnect started the pause. */
+  pausedAt: string;
+  /** ISO 8601 — `pausedAt` + the disconnect grace window (60 s). */
+  timeoutAt: string;
+  /** True once `timeoutAt` elapsed without a full reconnect. */
+  voteOpen: boolean;
+  /** ISO 8601 — set when the vote opened. Null while still in grace. */
+  voteOpenedAt: string | null;
+  /** Cast votes keyed by voter user id. */
+  votes: Record<string, PauseVote>;
+}
+
+/** Payload of the `game:paused` broadcast. */
+export interface GamePausedPayload {
+  gameId: string;
+  disconnectedUserIds: string[];
+  /** ISO 8601 — pause start. */
+  pausedAt: string;
+  /** ISO 8601 — when the grace window ends and voting opens. */
+  timeoutAt: string;
+}
+
+/** Payload of the `game:resumed` broadcast — everyone returned in time. */
+export interface GameResumedPayload {
+  gameId: string;
+}
+
+/** Payload of the `game:pause_vote_started` broadcast. */
+export interface GamePauseVoteStartedPayload {
+  gameId: string;
+  disconnectedUserIds: string[];
+  /** Length of the next wait window if `wait_more` wins, in seconds. */
+  timeoutSec: number;
+}
+
+/** Payload of the `game:pause_vote_update` broadcast. */
+export interface GamePauseVoteUpdatePayload {
+  gameId: string;
+  votes: Record<string, PauseVote>;
+}
+
+/** Payload of the `game:pause_wait_extended` broadcast. */
+export interface GamePauseWaitExtendedPayload {
+  gameId: string;
+  /** ISO 8601 — new timeout deadline (now + 60 s). */
+  timeoutAt: string;
+}
+
+/** Payload of the `game:concede_completed` broadcast. */
+export interface GameConcedeCompletedPayload {
+  gameId: string;
+  /** Users who were concedeed (forfeited because they didn't reconnect). */
+  concededUserIds: string[];
+}
+
+/** Wire payload for the `game:pause_vote` client-to-server emit. */
+export interface PauseVoteRequest {
+  gameId: string;
+  vote: PauseVote;
+}
+
+/** Grace window before vote opens, and re-grant window after `wait_more` wins. */
+export const PAUSE_DISCONNECT_GRACE_SECONDS = 60;
+/** Code returned by `game:command` ack while a pause is active. */
+export const GAME_PAUSED_ERROR_CODE = 'GAME_PAUSED';
 
 /**
  * Snapshot of the reply target denormalised onto the replying message at write

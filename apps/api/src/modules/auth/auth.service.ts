@@ -5,6 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { RedisService } from '../../infrastructure/redis/redis.service';
 import { PasswordHasher } from './password-hasher';
 import { SessionService } from './session.service';
 
@@ -18,6 +19,13 @@ export interface PublicUser {
   cardBackId: string;
   randomCardBack: boolean;
   customCardBackUrl: string | null;
+  /**
+   * Set to the gameId of the user's currently active (non-finished) game, if
+   * any. Read from Redis `userInGame:<userId>` and cross-checked against the
+   * `game:<id>` key so a stale pointer doesn't surface a dead game. Null
+   * otherwise. See {@link AuthService.resolveCurrentGameId}.
+   */
+  currentGameId: string | null;
 }
 
 @Injectable()
@@ -26,19 +34,37 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly hasher: PasswordHasher,
     private readonly sessions: SessionService,
+    private readonly redis: RedisService,
   ) {}
 
-  toPublicUser(u: {
-    id: string;
-    login: string;
-    nickname: string;
-    isAdmin: boolean;
-    mustChangePassword: boolean;
-    avatarUrl: string | null;
-    cardBackId: string;
-    randomCardBack: boolean;
-    customCardBackUrl: string | null;
-  }): PublicUser {
+  /**
+   * Look up the user's active game pointer in Redis and confirm the game state
+   * still exists. Returns null when the pointer is missing or when the game it
+   * references has aged out (stale pair — leave the orphan key alone, it will
+   * expire on its own TTL).
+   */
+  async resolveCurrentGameId(userId: string): Promise<string | null> {
+    const gameId = await this.redis.client.get(`userInGame:${userId}`);
+    if (!gameId) return null;
+    const exists = await this.redis.client.exists(`game:${gameId}`);
+    if (!exists) return null;
+    return gameId;
+  }
+
+  toPublicUser(
+    u: {
+      id: string;
+      login: string;
+      nickname: string;
+      isAdmin: boolean;
+      mustChangePassword: boolean;
+      avatarUrl: string | null;
+      cardBackId: string;
+      randomCardBack: boolean;
+      customCardBackUrl: string | null;
+    },
+    currentGameId: string | null = null,
+  ): PublicUser {
     return {
       id: u.id,
       login: u.login,
@@ -49,6 +75,7 @@ export class AuthService {
       cardBackId: u.cardBackId,
       randomCardBack: u.randomCardBack,
       customCardBackUrl: u.customCardBackUrl,
+      currentGameId,
     };
   }
 
@@ -90,7 +117,8 @@ export class AuthService {
       userAgent: meta.userAgent,
       ip: meta.ip,
     });
-    return { user: this.toPublicUser(user), sessionId, ttlSeconds };
+    const currentGameId = await this.resolveCurrentGameId(user.id);
+    return { user: this.toPublicUser(user, currentGameId), sessionId, ttlSeconds };
   }
 
   async logout(sessionId: string | undefined): Promise<void> {
@@ -106,7 +134,8 @@ export class AuthService {
     if (user.disabledAt) {
       throw new ForbiddenException({ code: 'ACCOUNT_DISABLED', message: 'Account disabled' });
     }
-    return this.toPublicUser(user);
+    const currentGameId = await this.resolveCurrentGameId(user.id);
+    return this.toPublicUser(user, currentGameId);
   }
 
   async changePassword(
@@ -143,6 +172,7 @@ export class AuthService {
     // Invalidate all OTHER sessions of this user — the current session stays valid
     // so the user remains logged in after password change.
     await this.sessions.destroyAllForUserExcept(userId, sessionId);
-    return this.toPublicUser(updated);
+    const currentGameId = await this.resolveCurrentGameId(userId);
+    return this.toPublicUser(updated, currentGameId);
   }
 }

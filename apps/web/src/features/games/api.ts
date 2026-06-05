@@ -3,6 +3,7 @@ import type {
   GameDetail,
   GameListQuery,
   GameListResponse,
+  PauseInfo,
   SameCompositionResponse,
 } from '@durak/shared-types';
 import type { ClientGameState } from './types';
@@ -19,7 +20,7 @@ export async function listGames(query: GameListQuery): Promise<GameListResponse>
  * else.
  */
 export type FetchGameResponse =
-  | { kind: 'live'; state: ClientGameState }
+  | { kind: 'live'; state: ClientGameState; pauseInfo: PauseInfo | null }
   | { kind: 'finished'; detail: GameDetail };
 
 /**
@@ -28,12 +29,19 @@ export type FetchGameResponse =
  * active game still see the public {@link GameDetail} (Phase 7A behaviour) or
  * a 404 (Phase 5 behaviour while it's still in Redis). 404 GAME_NOT_FOUND
  * propagates as an axios error so callers can route to NotFound.
+ *
+ * Phase 8: live response carries the current {@link PauseInfo} (or null) so the
+ * page can render the disconnect-pause overlay without waiting for the WS
+ * subscribe ack — avoids a flicker between REST hydrate and WS handshake.
  */
 export async function fetchGame(id: string): Promise<FetchGameResponse> {
-  const res = await api.get<{ state?: ClientGameState; detail?: GameDetail }>(
-    `/games/${id}`,
-  );
-  if (res.data.state) return { kind: 'live', state: res.data.state };
+  const res = await api.get<{
+    state?: ClientGameState;
+    pauseInfo?: PauseInfo | null;
+    detail?: GameDetail;
+  }>(`/games/${id}`);
+  if (res.data.state)
+    return { kind: 'live', state: res.data.state, pauseInfo: res.data.pauseInfo ?? null };
   if (res.data.detail) return { kind: 'finished', detail: res.data.detail };
   throw new Error('GAME_RESPONSE_MALFORMED');
 }

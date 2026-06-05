@@ -9,7 +9,11 @@
     "adminRatingConfig": "Параметры рейтинга",
     "profile": "Профиль",
     "logout": "Выйти",
-    "menuToggle": "Меню"
+    "menuToggle": "Меню",
+    "activeGameBanner": {
+      "title": "У вас активная игра",
+      "cta": "Вернуться"
+    }
   },
   "auth": {
     "loginTitle": "Вход",
@@ -228,7 +232,9 @@
       "ENTRY_ALREADY_BEATEN": "Эта атака уже побита",
       "CHEAT_DISABLED": "Мухляж в этой игре выключен",
       "CHEAT_LIMIT": "Попытки мухляжа закончились",
-      "GAME_OVER": "Игра окончена"
+      "GAME_OVER": "Игра окончена",
+      "GAME_PAUSED": "Игра на паузе — ждём подключения",
+      "VOTE_NOT_ALLOWED": "Голосование сейчас недоступно"
     },
     "cheat": {
       "noticeAria": "Заявить о жульничестве",
@@ -258,6 +264,19 @@
       "deckValue": "{{size}} карт, джокеры — {{jokers}}",
       "jokersOn": "вкл",
       "jokersOff": "выкл"
+    },
+    "pause": {
+      "title": "Игра на паузе",
+      "voteTitle": "Голосование",
+      "waitingFor": "Ждём: {{nicknames}}",
+      "timeLeft": "Осталось {{seconds}}с",
+      "vote": {
+        "waitMore": "Подождать ещё 60с",
+        "concede": "Завершить (засчитать поражение)",
+        "waitShort": "ждать",
+        "concedeShort": "сдать",
+        "pending": "не голосовал"
+      }
     },
     "chat": {
       "title": "Чат",

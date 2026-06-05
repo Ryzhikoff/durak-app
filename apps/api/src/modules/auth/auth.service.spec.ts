@@ -3,6 +3,7 @@ import { BadRequestException, UnauthorizedException, ForbiddenException } from '
 import { AuthService } from './auth.service';
 import { PasswordHasher } from './password-hasher';
 import { SessionService } from './session.service';
+import { RedisService } from '../../infrastructure/redis/redis.service';
 
 interface FakeUser {
   id: string;
@@ -59,10 +60,25 @@ function makeSessionStub() {
   };
 }
 
+/**
+ * Minimal in-memory stand-in for the ioredis surface AuthService touches —
+ * `GET userInGame:<userId>` and `EXISTS game:<id>`. Tests prime the map up
+ * front and assert on the resolved currentGameId.
+ */
+function makeRedisStub(initial: Record<string, string> = {}) {
+  const store = new Map<string, string>(Object.entries(initial));
+  const client = {
+    get: vi.fn(async (key: string) => store.get(key) ?? null),
+    exists: vi.fn(async (key: string) => (store.has(key) ? 1 : 0)),
+  };
+  return { client } as unknown as RedisService;
+}
+
 describe('AuthService.login', () => {
   let prisma: ReturnType<typeof makePrismaStub>;
   let hasher: PasswordHasher;
   let sessions: ReturnType<typeof makeSessionStub>;
+  let redis: RedisService;
   let svc: AuthService;
 
   beforeEach(() => {
@@ -72,10 +88,12 @@ describe('AuthService.login', () => {
       hash: vi.fn(async () => 'newhash'),
       verify: vi.fn(async (_h: string, p: string) => p === 'correct'),
     } as unknown as PasswordHasher;
+    redis = makeRedisStub();
     svc = new AuthService(
       prisma as unknown as never,
       hasher,
       sessions as unknown as SessionService,
+      redis,
     );
   });
 
@@ -125,6 +143,7 @@ describe('AuthService.changePassword', () => {
       prisma as unknown as never,
       hasher,
       sessions as unknown as SessionService,
+      makeRedisStub(),
     );
 
     const res = await svc.changePassword('u1', 'sess1', 'old', 'brand-new');
@@ -151,6 +170,7 @@ describe('AuthService.changePassword', () => {
       prisma as unknown as never,
       hasher,
       sessions as unknown as SessionService,
+      makeRedisStub(),
     );
     await expect(svc.changePassword('u1', 'sess1', 'bad', 'new')).rejects.toBeInstanceOf(
       BadRequestException,
@@ -176,6 +196,7 @@ describe('AuthService.changePassword', () => {
       prisma as unknown as never,
       hasher,
       sessions as unknown as SessionService,
+      makeRedisStub(),
     );
     await expect(svc.changePassword('u1', 'sess1', 'same', 'same')).rejects.toBeInstanceOf(
       BadRequestException,
@@ -188,5 +209,69 @@ describe('AuthService.changePassword', () => {
       expect(body.code).toBe('NEW_PASSWORD_SAME_AS_CURRENT');
     }
     expect(sessions.destroyAllForUserExcept).not.toHaveBeenCalled();
+  });
+});
+
+describe('AuthService.getMe', () => {
+  function makeSvc(redis: RedisService, userOverride: Partial<FakeUser> = {}) {
+    const prisma = makePrismaStub({ ...baseUser, ...userOverride });
+    const sessions = makeSessionStub();
+    const hasher = {
+      hash: vi.fn(),
+      verify: vi.fn(),
+    } as unknown as PasswordHasher;
+    return new AuthService(
+      prisma as unknown as never,
+      hasher,
+      sessions as unknown as SessionService,
+      redis,
+    );
+  }
+
+  it('returns currentGameId from Redis when userInGame and game keys exist', async () => {
+    const redis = makeRedisStub({
+      'userInGame:u1': 'game-xyz',
+      'game:game-xyz': '{}',
+    });
+    const svc = makeSvc(redis);
+    const res = await svc.getMe('u1');
+    expect(res.currentGameId).toBe('game-xyz');
+  });
+
+  it('returns currentGameId=null when no userInGame pointer is set', async () => {
+    const redis = makeRedisStub();
+    const svc = makeSvc(redis);
+    const res = await svc.getMe('u1');
+    expect(res.currentGameId).toBeNull();
+  });
+
+  it('returns currentGameId=null when the pointer is stale (game key absent)', async () => {
+    const redis = makeRedisStub({ 'userInGame:u1': 'orphan' });
+    const svc = makeSvc(redis);
+    const res = await svc.getMe('u1');
+    expect(res.currentGameId).toBeNull();
+  });
+});
+
+describe('AuthService.login currentGameId surfacing', () => {
+  it('returns currentGameId on a successful login when the pointer is live', async () => {
+    const prisma = makePrismaStub({ ...baseUser });
+    const sessions = makeSessionStub();
+    const hasher = {
+      hash: vi.fn(),
+      verify: vi.fn(async (_h: string, p: string) => p === 'correct'),
+    } as unknown as PasswordHasher;
+    const redis = makeRedisStub({
+      'userInGame:u1': 'game-abc',
+      'game:game-abc': '{}',
+    });
+    const svc = new AuthService(
+      prisma as unknown as never,
+      hasher,
+      sessions as unknown as SessionService,
+      redis,
+    );
+    const res = await svc.login('admin', 'correct', {});
+    expect(res.user.currentGameId).toBe('game-abc');
   });
 });

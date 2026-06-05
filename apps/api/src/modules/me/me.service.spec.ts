@@ -45,7 +45,8 @@ function makePrismaStub(user: FakeUser) {
 
 function makeAuthStub(): AuthService {
   return {
-    toPublicUser: (u: FakeUser) => ({ ...u }),
+    toPublicUser: (u: FakeUser) => ({ ...u, currentGameId: null }),
+    resolveCurrentGameId: async () => null,
   } as unknown as AuthService;
 }
 

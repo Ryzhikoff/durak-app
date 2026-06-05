@@ -50,7 +50,8 @@ export class CustomCardBackService {
       where: { id: userId },
       data: { customCardBackUrl: relativeUrl },
     });
-    return this.auth.toPublicUser(updated);
+    const currentGameId = await this.auth.resolveCurrentGameId(userId);
+    return this.auth.toPublicUser(updated, currentGameId);
   }
 
   /**
@@ -73,6 +74,7 @@ export class CustomCardBackService {
         ...(resetCardBackId ? { cardBackId: 'classic-1' } : {}),
       },
     });
-    return this.auth.toPublicUser(updated);
+    const currentGameId = await this.auth.resolveCurrentGameId(userId);
+    return this.auth.toPublicUser(updated, currentGameId);
   }
 }

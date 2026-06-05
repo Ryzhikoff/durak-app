@@ -93,6 +93,76 @@ describe('cheating enabled', () => {
     expect(r2.state.table.attacks[0].beatenBy?.id).toBe('hearts-6');
   });
 
+  it('notice_cheat on an illegal earlier throw is NOT laundered by later legitimate same-rank throws', () => {
+    // Regression: when later valid throws of a rank R join the table, an
+    // earlier illegal throw of a *different* rank used to look legal because
+    // the engine checked the entry against ALL OTHER cards currently on the
+    // table — including the legitimate R-cards that were thrown AFTER it.
+    // The fix is to evaluate the entry against entries that PRECEDED it.
+    //
+    // Scenario: bout opens with 3♦, attacker (cheating-on) throws Q♣ (cheat,
+    // doesn't match rank 3), then someone genuinely throws 4♦ and another
+    // genuinely throws 4♣ — both 4s are illegitimate too because the only
+    // legal rank at their time was still 3 (the Q is a cheat). Noticing the
+    // Q♣ must still report it as a cheat.
+    const state = craftGame({
+      players: [
+        {
+          id: 'A',
+          hand: [
+            card('diamonds', 3),
+            card('clubs', 12),
+            card('diamonds', 4),
+            card('clubs', 4),
+          ],
+        },
+        // Defender holds enough cards to keep the throw-in cap open.
+        {
+          id: 'B',
+          hand: [
+            card('hearts', 7),
+            card('hearts', 8),
+            card('hearts', 9),
+            card('hearts', 10),
+            card('hearts', 11),
+            card('hearts', 13),
+          ],
+        },
+      ],
+      attackerId: 'A',
+      defenderId: 'B',
+      trumpSuit: 'hearts',
+      settings: {
+        cheatingEnabled: true,
+        cheatAttempts: 2,
+        cheatNoticeScope: 'all',
+      },
+    });
+    const r1 = applyCommand(state, { type: 'attack', playerId: 'A', cardId: 'diamonds-3' });
+    if (!r1.ok) throw new Error(`r1: ${r1.code}`);
+    const r2 = applyCommand(r1.state, { type: 'attack', playerId: 'A', cardId: 'clubs-12' });
+    if (!r2.ok) throw new Error(`r2: ${r2.code}`);
+    const r3 = applyCommand(r2.state, { type: 'attack', playerId: 'A', cardId: 'diamonds-4' });
+    if (!r3.ok) throw new Error(`r3: ${r3.code}`);
+    const r4 = applyCommand(r3.state, { type: 'attack', playerId: 'A', cardId: 'clubs-4' });
+    if (!r4.ok) throw new Error(`r4: ${r4.code}`);
+    // Defender notices the Q♣ (second entry).
+    const qEntry = r4.state.table.attacks[1];
+    const r5 = applyCommand(r4.state, {
+      type: 'notice_cheat',
+      playerId: 'B',
+      attackEntryId: qEntry.id,
+    });
+    expect(r5.ok).toBe(true);
+    if (!r5.ok) return;
+    const cheatEvent = r5.events.find((e) => e.type === 'CheatNoticed');
+    expect(cheatEvent).toMatchObject({ succeeded: true, cheaterId: 'A' });
+    // Q♣ returns to A's hand, leaving the legitimate-looking 4s and the
+    // original 3 on the table.
+    expect(r5.state.table.attacks.find((a) => a.id === qEntry.id)).toBeUndefined();
+    expect(r5.state.players[0].hand.some((c) => c.id === 'clubs-12')).toBe(true);
+  });
+
   it('notice_cheat on a LEGAL beat returns succeeded=false and consumes no attempt', () => {
     const state = craftGame({
       players: [

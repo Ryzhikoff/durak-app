@@ -44,7 +44,8 @@ export class AvatarService {
       where: { id: userId },
       data: { avatarUrl: relativeUrl },
     });
-    return this.auth.toPublicUser(updated);
+    const currentGameId = await this.auth.resolveCurrentGameId(userId);
+    return this.auth.toPublicUser(updated, currentGameId);
   }
 
   async remove(userId: string): Promise<PublicUser> {
@@ -53,6 +54,7 @@ export class AvatarService {
       where: { id: userId },
       data: { avatarUrl: null },
     });
-    return this.auth.toPublicUser(updated);
+    const currentGameId = await this.auth.resolveCurrentGameId(userId);
+    return this.auth.toPublicUser(updated, currentGameId);
   }
 }

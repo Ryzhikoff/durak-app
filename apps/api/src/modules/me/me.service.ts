@@ -89,7 +89,8 @@ export class MeService {
         where: { id: userId },
         data,
       });
-      return { user: auth.toPublicUser(updated) };
+      const currentGameId = await auth.resolveCurrentGameId(userId);
+      return { user: auth.toPublicUser(updated, currentGameId) };
     } catch (err) {
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
