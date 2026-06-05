@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Flag } from 'lucide-react';
 import { Avatar } from '@/components/Avatar';
 import { CardBackDisplay } from './CardBackDisplay';
+import { ReactionBubble } from './ReactionBubble';
 import type { ClientGamePlayer } from './types';
 
 interface OpponentSeatProps {
@@ -19,6 +20,12 @@ interface OpponentSeatProps {
    * by the parent (only enabled when the current game has cheatingEnabled).
    */
   showCheatBadge?: boolean;
+  /**
+   * Optional active seat reaction. Driven by {@link useGameReactions} on the
+   * parent — the `timestamp` doubles as the React `key` so a re-trigger of the
+   * same emoji restarts the float animation.
+   */
+  reaction?: { emoji: string; timestamp: string } | null;
 }
 
 /**
@@ -33,6 +40,7 @@ export function OpponentSeat({
   className,
   compact,
   showCheatBadge,
+  reaction,
 }: OpponentSeatProps) {
   const { t } = useTranslation();
   // Cap visible face-downs to keep layout from blowing up at e.g. handSize=24.
@@ -50,7 +58,8 @@ export function OpponentSeat({
   return (
     <div
       className={clsx(
-        'flex flex-col items-center gap-1 rounded-xl border bg-surface p-2',
+        // `relative` so the absolutely-positioned reaction bubble anchors here.
+        'relative flex flex-col items-center gap-1 rounded-xl border bg-surface p-2',
         isAttacker
           ? 'border-warning ring-1 ring-warning'
           : isDefender
@@ -61,6 +70,12 @@ export function OpponentSeat({
       )}
       data-testid={`opponent-${player.id}`}
     >
+      {reaction ? (
+        <ReactionBubble
+          key={reaction.timestamp}
+          emoji={reaction.emoji}
+        />
+      ) : null}
       <div className="flex items-center gap-2">
         <Avatar
           src={player.avatarUrl}

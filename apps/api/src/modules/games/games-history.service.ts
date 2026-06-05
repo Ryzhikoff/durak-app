@@ -260,12 +260,13 @@ export class GamesHistoryService {
     // set comparison so the DB does the heavy lifting and we only round-trip
     // ids back. `array_agg(DISTINCT ... ORDER BY ...)` yields a stable form
     // that equality against a text[] literal can match against.
-    const raw = (
-      this.prisma as unknown as {
-        $queryRaw: (q: Prisma.Sql) => Promise<Array<{ id: string }>>;
-      }
-    ).$queryRaw;
-    const rows = await raw(Prisma.sql`
+    // $queryRaw must be invoked as a method on the Prisma client — extracting
+    // it into a local variable strips the `this` binding and Prisma loses
+    // access to its internal _createPrismaPromise factory.
+    const rawPrisma = this.prisma as unknown as {
+      $queryRaw: <T = unknown>(q: Prisma.Sql) => Promise<T>;
+    };
+    const rows = await rawPrisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
       SELECT g.id
       FROM "Game" g
       WHERE g.id <> ${referenceGameId}

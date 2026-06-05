@@ -43,6 +43,14 @@ interface GameChatPanelProps {
   open: boolean;
   onClose: () => void;
   myUserId: string;
+  /**
+   * Layout mode. `'drawer'` (default) is the mobile slide-in overlay — chat
+   * floats over the table and closes via the X button or backdrop click.
+   * `'sidebar'` is the always-visible desktop variant — `open` is treated as
+   * `true`, `onClose` is a no-op and the wrapping host (GamePage) decides
+   * placement via flex.
+   */
+  variant?: 'drawer' | 'sidebar';
 }
 
 type EmojiPickerTarget =
@@ -54,9 +62,14 @@ export function GameChatPanel({
   open,
   onClose,
   myUserId,
+  variant = 'drawer',
 }: GameChatPanelProps) {
   const { t, i18n } = useTranslation();
   const { messages, send, react, isSending, markAllRead, refresh } = useGameChat(gameId);
+  // In sidebar mode the panel is always "open" — there's no drawer toggle.
+  // We still expose the same hook surface so tests can pass `open=false` for
+  // the drawer variant explicitly.
+  const isOpen = variant === 'sidebar' ? true : open;
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [replyDraft, setReplyDraft] = useState<ChatMessageReply | null>(null);
@@ -85,30 +98,38 @@ export function GameChatPanel({
   }, []);
 
   useLayoutEffect(() => {
-    if (!open) return;
+    if (!isOpen) return;
     const el = scrollerRef.current;
     if (!el) return;
     if (autoStickRef.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [open, messages]);
+  }, [isOpen, messages]);
 
   // On open: refresh from the server (cheap), mark everything seen, focus input.
+  // In sidebar mode this fires once on mount; in drawer mode it re-fires on
+  // every toggle.
   useEffect(() => {
-    if (!open) return;
+    if (!isOpen) return;
     markAllRead();
     autoStickRef.current = true;
     void refresh().catch(() => undefined);
     const handle = setTimeout(() => {
-      inputRef.current?.focus();
+      // Avoid stealing focus from the game when the desktop sidebar mounts —
+      // the user expects to interact with the table first.
+      if (variant !== 'sidebar') {
+        inputRef.current?.focus();
+      }
     }, 50);
     return () => clearTimeout(handle);
-  }, [open, markAllRead, refresh]);
+  }, [isOpen, markAllRead, refresh, variant]);
 
   // Keep "read" cursor up to date as new messages arrive while the panel is open.
+  // Sidebar mode is always visible, so every incoming message is implicitly
+  // read the moment it lands.
   useEffect(() => {
-    if (open) markAllRead();
-  }, [open, messages, markAllRead]);
+    if (isOpen) markAllRead();
+  }, [isOpen, messages, markAllRead]);
 
   const trimmedDraft = draft.trim();
   const remaining = CHAT_MESSAGE_MAX_LENGTH - trimmedDraft.length;
@@ -242,9 +263,11 @@ export function GameChatPanel({
     setTimeout(() => el.classList.remove('chat-quote-flash'), 1200);
   }, []);
 
-  // Esc handler — closes the picker first, then the panel.
+  // Esc handler — closes the picker first, then the panel. Drawer-only:
+  // pressing Esc on desktop should never collapse the always-visible sidebar.
   useEffect(() => {
-    if (!open) return;
+    if (!isOpen) return;
+    if (variant === 'sidebar') return;
     const onEsc = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       if (picker) {
@@ -255,52 +278,25 @@ export function GameChatPanel({
     };
     document.addEventListener('keydown', onEsc);
     return () => document.removeEventListener('keydown', onEsc);
-  }, [open, picker, onClose]);
+  }, [isOpen, picker, onClose, variant]);
 
   const groupedMessages = useMemo(() => groupMessages(messages), [messages]);
   const idsInView = useMemo(() => new Set(messages.map((m) => m.id)), [messages]);
 
-  if (!open) return null;
+  if (!isOpen) return null;
 
-  return (
-    <div
-      className="fixed inset-0 z-40 flex justify-end"
-      role="dialog"
-      aria-modal="true"
-      aria-label={t('game.chat.title')}
-      data-testid="game-chat-panel"
-    >
-      <button
-        type="button"
-        aria-label={t('common.cancel')}
-        className="absolute inset-0 bg-black/40"
-        onClick={onClose}
-      />
-      <aside
-        className="relative z-10 flex h-full w-full flex-col border-l border-border bg-surface shadow-2xl sm:w-[360px]"
-        // Padding-bottom accounts for iOS safe-area / on-screen keyboard.
-        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+  // The body — message list + error + reply banner + emoji picker + composer —
+  // is identical between the drawer and sidebar variants. Hoisting it into a
+  // single expression keeps the two render branches focused on their wrapper
+  // chrome (overlay vs. inline flex column).
+  const body = (
+    <>
+      <div
+        ref={scrollerRef}
+        onScroll={onScroll}
+        className="flex flex-1 flex-col gap-1.5 overflow-y-auto px-3 py-3"
+        data-testid="chat-message-list"
       >
-        <header className="flex items-center justify-between border-b border-border px-3 py-2">
-          <h2 className="text-sm font-semibold">{t('game.chat.title')}</h2>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onClose}
-            aria-label={t('common.cancel')}
-            className="!h-8 !w-8 !p-0"
-            data-testid="close-chat"
-          >
-            <X className="h-4 w-4" aria-hidden />
-          </Button>
-        </header>
-
-        <div
-          ref={scrollerRef}
-          onScroll={onScroll}
-          className="flex flex-1 flex-col gap-1.5 overflow-y-auto px-3 py-3"
-          data-testid="chat-message-list"
-        >
           {messages.length === 0 ? (
             <p
               className="my-auto text-center text-sm text-textMuted"
@@ -451,6 +447,63 @@ export function GameChatPanel({
             <Send className="h-4 w-4" aria-hidden />
           </Button>
         </form>
+    </>
+  );
+
+  // Sidebar variant: render inline, no overlay/backdrop. The host (GamePage)
+  // controls placement via a flex layout. No close button — the panel is
+  // permanently visible.
+  if (variant === 'sidebar') {
+    return (
+      <aside
+        className="flex h-full w-full flex-col border-l border-border bg-surface"
+        aria-label={t('game.chat.title')}
+        data-testid="game-chat-panel"
+        data-variant="sidebar"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        <header className="flex items-center justify-between border-b border-border px-3 py-2">
+          <h2 className="text-sm font-semibold">{t('game.chat.title')}</h2>
+        </header>
+        {body}
+      </aside>
+    );
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-40 flex justify-end"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t('game.chat.title')}
+      data-testid="game-chat-panel"
+      data-variant="drawer"
+    >
+      <button
+        type="button"
+        aria-label={t('common.cancel')}
+        className="absolute inset-0 bg-black/40"
+        onClick={onClose}
+      />
+      <aside
+        className="relative z-10 flex h-full w-full flex-col border-l border-border bg-surface shadow-2xl sm:w-[360px]"
+        // Padding-bottom accounts for iOS safe-area / on-screen keyboard.
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        <header className="flex items-center justify-between border-b border-border px-3 py-2">
+          <h2 className="text-sm font-semibold">{t('game.chat.title')}</h2>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onClose}
+            aria-label={t('common.cancel')}
+            className="!h-8 !w-8 !p-0"
+            data-testid="close-chat"
+          >
+            <X className="h-4 w-4" aria-hidden />
+          </Button>
+        </header>
+        {body}
       </aside>
     </div>
   );

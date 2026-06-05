@@ -59,20 +59,29 @@ export class GamesController {
     // snapshot is what the in-game UI expects.
     const live = await this.games.tryGet(id);
     if (live) {
-      const isMember = live.players.some((p) => p.id === session.userId);
-      if (isMember) {
-        // Bundle the pause snapshot with the state so the client doesn't see a
-        // brief overlay-flicker between the REST hydration and the WS subscribe
-        // ack. The two queries run in parallel — pauseInfo failure is non-fatal
-        // (we fall back to null so the live state still renders).
-        const [state, pauseInfo] = await Promise.all([
-          this.games.getClientState(id, session.userId),
-          this.pause.get(id).catch(() => null),
-        ]);
-        return { state, pauseInfo };
+      // If the game already reached game_over we prefer the Postgres
+      // GameDetail so participants who click on a recently-finished game from
+      // the "last games" list land on the proper recap page instead of seeing
+      // the stale live snapshot with the GameOverModal on top. Redis retains
+      // the post-game state for 30 minutes for reconnect / chat, but it's no
+      // longer the right view once the bout is sealed.
+      if (live.status !== 'game_over') {
+        const isMember = live.players.some((p) => p.id === session.userId);
+        if (isMember) {
+          // Bundle the pause snapshot with the state so the client doesn't
+          // see a brief overlay-flicker between the REST hydration and the WS
+          // subscribe ack. The two queries run in parallel — pauseInfo
+          // failure is non-fatal (we fall back to null so the live state
+          // still renders).
+          const [state, pauseInfo] = await Promise.all([
+            this.games.getClientState(id, session.userId),
+            this.pause.get(id).catch(() => null),
+          ]);
+          return { state, pauseInfo };
+        }
+        // Non-participant on an active game: fall through to Postgres in case
+        // we somehow have a finished record too (shouldn't, but cheap).
       }
-      // Non-participant: don't short-circuit to 404. Fall through to
-      // Postgres so a finished-game GameDetail is returned when available.
     }
     const detail = await this.history.getDetail(id);
     if (!detail) {

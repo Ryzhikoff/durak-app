@@ -22,6 +22,7 @@ import {
   type ChatReactionUpdate,
   type PauseInfo,
   type PauseVote,
+  type PlayerReactionPayload,
 } from '@durak/shared-types';
 import { SESSION_COOKIE_NAME } from '../auth/auth.constants';
 import { SessionService } from '../auth/session.service';
@@ -87,6 +88,7 @@ export class GamesGateway
       gameEnded: (state, events) => this.broadcastUpdate(state, events, true),
       chatMessage: (gameId, message) => this.broadcastChatMessage(gameId, message),
       chatReaction: (gameId, update) => this.broadcastChatReaction(gameId, update),
+      playerReaction: (gameId, payload) => this.broadcastPlayerReaction(gameId, payload),
     });
     // Resurrect grace-window timers for any games that were already paused
     // before the api restarted. In-memory state is lost but the Redis blob
@@ -444,6 +446,23 @@ export class GamesGateway
     });
   }
 
+  @SubscribeMessage(GAME_EVENTS.reactionSend)
+  async onReactionSend(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { gameId?: string; emoji?: string },
+  ): Promise<Ack<{ ok: true }>> {
+    return this.run(async () => {
+      const userId = this.requireUserId(client);
+      const gameId = this.requireGameId(body);
+      const emoji = typeof body?.emoji === 'string' ? body.emoji : '';
+      if (!emoji || emoji.length > 16) {
+        throw new GatewayError('REACTION_INVALID', 'Reaction is required');
+      }
+      await this.games.recordReaction(gameId, userId, emoji);
+      return { ok: true as const };
+    });
+  }
+
   @SubscribeMessage(GAME_EVENTS.chatFetch)
   async onChatFetch(
     @ConnectedSocket() client: Socket,
@@ -678,6 +697,19 @@ export class GamesGateway
       this.server.to(gameRoom(gameId)).emit(GAME_EVENTS.chatReaction, update);
     } catch (err) {
       this.logger.warn({ err, gameId }, 'failed to broadcast chat reaction');
+    }
+  }
+
+  /**
+   * Fan out a transient seat-side reaction. Every socket in the game room
+   * renders a floating bubble above the named user's seat for a short window;
+   * nothing is persisted server-side.
+   */
+  private broadcastPlayerReaction(gameId: string, payload: PlayerReactionPayload): void {
+    try {
+      this.server.to(gameRoom(gameId)).emit(GAME_EVENTS.playerReaction, payload);
+    } catch (err) {
+      this.logger.warn({ err, gameId }, 'failed to broadcast player reaction');
     }
   }
 

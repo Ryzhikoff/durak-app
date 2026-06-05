@@ -62,3 +62,30 @@
   animation: chat-quote-pulse 1.2s ease-out;
   border-radius: 0.75rem;
 }
+
+/* In-game seat reaction: floats up + fades out over the configured duration. */
+@keyframes reaction-bubble-float {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 0) scale(0.6);
+  }
+  15% {
+    opacity: 1;
+    transform: translate(-50%, -10px) scale(1);
+  }
+  80% {
+    opacity: 1;
+    transform: translate(-50%, -42px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -56px) scale(0.9);
+  }
+}
+
+.reaction-bubble {
+  animation-name: reaction-bubble-float;
+  animation-timing-function: ease-out;
+  animation-fill-mode: forwards;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}

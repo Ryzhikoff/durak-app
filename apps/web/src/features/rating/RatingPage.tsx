@@ -10,6 +10,8 @@ import { useGames, GAMES_QUERY_KEY } from '@/features/games/hooks';
 import { ME_QUERY_KEY } from '@/features/auth/hooks';
 import { gamesSocket, useGameSocket } from '@/features/games/socket';
 import { LobbyListSection } from '@/features/lobbies/LobbyListSection';
+import { HighlightsSection } from '@/features/highlights/HighlightsSection';
+import { HIGHLIGHTS_QUERY_KEY } from '@/features/highlights/hooks';
 import { useAuthStore } from '@/stores/auth.store';
 import { getApiErrorMessage } from '@/lib/api';
 import { PROFILE_QUERY_KEY } from '@/features/profile/hooks';
@@ -45,6 +47,7 @@ export function RatingPage() {
       void qc.invalidateQueries({ queryKey: [RATING_QUERY_KEY] });
       void qc.invalidateQueries({ queryKey: [GAMES_QUERY_KEY] });
       void qc.invalidateQueries({ queryKey: [PROFILE_QUERY_KEY] });
+      void qc.invalidateQueries({ queryKey: [HIGHLIGHTS_QUERY_KEY] });
       // The current user's own game may have just finished — refresh /auth/me
       // so the AppShell active-game banner hides without an F5.
       void qc.invalidateQueries({ queryKey: ME_QUERY_KEY });
@@ -76,6 +79,8 @@ export function RatingPage() {
       </header>
 
       <LobbyListSection />
+
+      <HighlightsSection />
 
       <section aria-labelledby="rating-section" className="flex flex-col gap-3">
         <h2 id="rating-section" className="text-lg font-semibold">

@@ -168,6 +168,52 @@ export interface RatingListQuery {
   limit?: number;
 }
 
+// ---------- Highlights (Phase 7C — interesting metrics) ----------
+
+/**
+ * Category of a {@link Highlight}. Drives the colour accent on the frontend
+ * card.
+ */
+export type HighlightCategory =
+  | 'cheating'
+  | 'wins'
+  | 'losses'
+  | 'translates'
+  | 'takes'
+  | 'streak';
+
+/** Rolling window used to compute the leaderboard. */
+export type HighlightPeriod = 'day' | 'week';
+
+/** Single leaderboard row inside a {@link Highlight}. */
+export interface HighlightEntry {
+  userId: string;
+  nickname: string;
+  avatarUrl: string | null;
+  value: number;
+  /** Optional pre-formatted label override (e.g. "5 партий"). */
+  valueLabel?: string;
+}
+
+/**
+ * One leaderboard widget rendered on the home page. The frontend looks up the
+ * title / icon via i18n using `id` as the key so backend-side localisation is
+ * not required, but `title` and `icon` are still passed for fallback rendering
+ * if the i18n bundle ever lags behind.
+ */
+export interface Highlight {
+  id: string;
+  category: HighlightCategory;
+  period: HighlightPeriod;
+  title: string;
+  icon: string;
+  entries: HighlightEntry[];
+}
+
+export interface HighlightsResponse {
+  items: Highlight[];
+}
+
 // ---------- Public profile ----------
 
 /**
@@ -468,12 +514,26 @@ export const GAME_EVENTS = {
   chatReact: 'game:chat_react',
   /** Phase 8 — cast a vote during a disconnect pause's voting window. */
   pauseVote: 'game:pause_vote',
+  /**
+   * Player taps an emoji in the seat-side picker — server validates + rate-limits
+   * + broadcasts `playerReaction`. Distinct from `chatReact` which targets chat
+   * bubbles; in-game reactions float above the player's seat for ~2.5s and are
+   * not persisted.
+   */
+  reactionSend: 'game:reaction',
   // Server -> Client (per-game room)
   state: 'game:state',
   events: 'game:events',
   over: 'game:over',
   chatMessage: 'game:chat_message',
   chatReaction: 'game:chat_reaction',
+  /**
+   * Transient seat-side reaction. Payload: `PlayerReactionPayload`. Clients
+   * render an ephemeral bubble above the named user's seat and drop it after a
+   * short timeout. Nothing is persisted; reconnecting clients miss reactions
+   * that aired while they were away.
+   */
+  playerReaction: 'game:player_reaction',
   /**
    * Public game-over broadcast — fanned out to every socket connected to the
    * `/games` namespace, NOT just per-game room members. Payload is the minimum
@@ -662,6 +722,7 @@ export const EMOJI_REACTIONS = [
   '\u{1F389}', // party popper
   '\u{1F0CF}', // joker card
   '\u{1F921}', // clown face
+  '\u{1F4A9}', // pile of poo
 ] as const;
 
 export type ChatReactionEmoji = (typeof EMOJI_REACTIONS)[number];
@@ -673,6 +734,34 @@ export interface ChatReactionUpdate {
   /** null = the reaction was removed. */
   emoji: string | null;
 }
+
+// ---------- In-game seat reactions (transient) ----------
+
+/**
+ * Wire payload of the client-to-server `game:reaction` emit. The user picked
+ * an emoji from the seat-side picker; the server validates + rate-limits.
+ */
+export interface PlayerReactionRequest {
+  gameId: string;
+  emoji: string;
+}
+
+/**
+ * Server-to-client broadcast for a transient seat-side reaction. Clients show
+ * the emoji above the corresponding seat for a brief window and then drop it.
+ * Never persisted — reconnecting clients miss reactions that fired while away.
+ */
+export interface PlayerReactionPayload {
+  userId: string;
+  emoji: string;
+  /** ISO 8601 — when the server accepted the reaction. */
+  timestamp: string;
+}
+
+/** Min interval between two in-game reactions from the same user, in ms. */
+export const PLAYER_REACTION_RATE_LIMIT_MS = 1500;
+/** How long the floating bubble stays visible on each client, in ms. */
+export const PLAYER_REACTION_BUBBLE_TTL_MS = 2500;
 
 // ---------- Error envelope ----------
 

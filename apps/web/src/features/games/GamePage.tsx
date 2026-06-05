@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { MessageCircle, Settings2 } from 'lucide-react';
+import { MessageCircle, Settings2, Smile } from 'lucide-react';
+import { EMOJI_REACTIONS } from '@durak/shared-types';
 import {
   DndContext,
   DragOverlay,
@@ -18,8 +19,15 @@ import { Alert, Button, Card, Modal, Spinner } from '@/components/ui';
 import { getApiErrorMessage } from '@/lib/api';
 import { SocketAckError } from '@/lib/socket';
 import { useAuthStore } from '@/stores/auth.store';
-import { useGame, useGameChat, useGameCommand, usePauseVote } from './hooks';
+import {
+  useGame,
+  useGameChat,
+  useGameCommand,
+  useGameReactions,
+  usePauseVote,
+} from './hooks';
 import { GameChatPanel } from './GameChatPanel';
+import { ReactionBubble } from './ReactionBubble';
 import { GameDetailView } from './GameDetailView';
 import { PauseOverlay } from './PauseOverlay';
 import {
@@ -173,14 +181,40 @@ function GameRoom({
   } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
-  // We need the unread badge in the header even while the panel is closed —
+  // We need the unread badge in the header even while the drawer is closed —
   // pull it via the same hook the panel uses (same TanStack-Query cache key, so
-  // there's no duplicate subscription cost).
+  // there's no duplicate subscription cost). On desktop (xl+) the chat sidebar
+  // is permanently visible and calls `markAllRead` on its own — the badge there
+  // is hidden via CSS so the bookkeeping mismatch is harmless.
   const chat = useGameChat(gameId);
   const onOpenChat = useCallback(() => {
     setChatOpen(true);
     chat.markAllRead();
   }, [chat]);
+
+  // In-game seat reactions. Listens for `game:player_reaction` and keeps a
+  // per-userId map of what's currently floating; the bubble itself auto-fades
+  // via the CSS keyframe. `send(emoji)` round-trips the picker selection.
+  const reactionsHook = useGameReactions(gameId);
+  const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
+  const onPickReaction = useCallback(
+    async (emoji: string) => {
+      setReactionPickerOpen(false);
+      try {
+        await reactionsHook.send(emoji);
+      } catch (err: unknown) {
+        if (err instanceof SocketAckError) {
+          setError(
+            t(`game.errors.${err.code}`, {
+              defaultValue: t(`errors.${err.code}`, { defaultValue: err.message }),
+            }),
+          );
+        }
+      }
+    },
+    [reactionsHook, t],
+  );
+  const myReaction = reactionsHook.reactions[myUserId] ?? null;
 
   const tableHasUnbeaten = useMemo(
     () => state.table.attacks.some((a) => a.beatenBy === null),
@@ -564,7 +598,14 @@ function GameRoom({
       onDragEnd={onDragEnd}
       onDragCancel={onDragCancel}
     >
-      <div className="flex flex-col gap-3" data-testid="game-room">
+      {/* Layout:
+          - mobile / tablet (< xl): chat is a drawer, the column takes 100% width.
+          - desktop (xl+): chat is a permanent right sidebar; the game column
+            takes the remaining width.
+          Wrapping in a flex row that becomes a no-op below xl preserves the
+          original layout's vertical-stack behaviour. */}
+      <div className="flex w-full gap-3 xl:items-stretch">
+        <div className="flex flex-1 flex-col gap-3" data-testid="game-room">
         <header className="flex items-center justify-between gap-2 text-xs">
           <div className="flex items-center gap-2 text-textMuted">
             <span>{t('game.bout', { number: state.boutNumber })}</span>
@@ -581,13 +622,15 @@ function GameRoom({
             <div className="rounded-md bg-surfaceAlt px-2 py-1 font-medium">
               {defaultStatus}
             </div>
+            {/* Chat-toggle button — drawer mode only. On xl+ the chat sidebar
+                is always visible so the button collapses out. */}
             <Button
               variant="ghost"
               size="sm"
               onClick={onOpenChat}
               aria-label={t('game.chat.openAria')}
               data-testid="open-game-chat"
-              className="relative !h-8 gap-1 !px-2"
+              className="relative !h-8 gap-1 !px-2 xl:hidden"
             >
               <MessageCircle className="h-4 w-4" aria-hidden />
               <span className="hidden sm:inline">
@@ -660,6 +703,7 @@ function GameRoom({
                 isAttacker={p.id === state.currentAttackerId}
                 isDefender={p.id === state.currentDefenderId}
                 showCheatBadge={cheatingOn}
+                reaction={reactionsHook.reactions[p.id] ?? null}
               />
             ))}
           </div>
@@ -680,6 +724,7 @@ function GameRoom({
                   isDefender={p.id === state.currentDefenderId}
                   compact
                   showCheatBadge={cheatingOn}
+                  reaction={reactionsHook.reactions[p.id] ?? null}
                 />
               ))}
             </div>
@@ -693,6 +738,7 @@ function GameRoom({
                   isDefender={p.id === state.currentDefenderId}
                   compact
                   showCheatBadge={cheatingOn}
+                  reaction={reactionsHook.reactions[p.id] ?? null}
                 />
               ))}
             </div>
@@ -729,6 +775,54 @@ function GameRoom({
           defaultStatus={defaultStatus}
           transientHint={transientHint}
         />
+
+        {/* Reaction picker row sits above the player's own hand. The smile
+            button toggles a small popover with the EMOJI_REACTIONS whitelist;
+            tapping one fires `game:reaction` which broadcasts a floating
+            bubble to every client (including the sender, anchored above the
+            hand below). */}
+        <div className="relative flex items-center justify-end">
+          <ReactionBubble
+            key={myReaction?.timestamp ?? 'none'}
+            emoji={myReaction?.emoji ?? null}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setReactionPickerOpen((v) => !v)}
+            aria-label={t('game.reactions.send')}
+            aria-pressed={reactionPickerOpen}
+            data-testid="open-reaction-picker"
+            className="!h-9 gap-1 !px-2"
+          >
+            <Smile className="h-4 w-4" aria-hidden />
+            <span className="hidden sm:inline">
+              {t('game.reactions.send')}
+            </span>
+          </Button>
+          {reactionPickerOpen ? (
+            <div
+              className="absolute bottom-full right-0 z-30 mb-2 flex max-h-40 w-64 flex-wrap gap-0.5 overflow-y-auto rounded-xl border border-border bg-surface p-2 shadow-2xl"
+              role="toolbar"
+              aria-label={t('game.reactions.send')}
+              data-testid="reaction-picker"
+            >
+              {EMOJI_REACTIONS.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => void onPickReaction(emoji)}
+                  className="shrink-0 rounded px-1.5 py-0.5 text-xl leading-none transition-colors hover:bg-border"
+                  aria-label={emoji}
+                  data-testid={`reaction-emoji-${emoji}`}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
 
         <PlayerHand
           hand={myHand}
@@ -774,12 +868,16 @@ function GameRoom({
           playerCount={state.players.length}
         />
 
-        <GameChatPanel
-          gameId={gameId}
-          open={chatOpen}
-          onClose={() => setChatOpen(false)}
-          myUserId={myUserId}
-        />
+        {/* Mobile / tablet drawer. Hidden on xl+ where the sidebar takes over. */}
+        <div className="xl:hidden">
+          <GameChatPanel
+            gameId={gameId}
+            open={chatOpen}
+            onClose={() => setChatOpen(false)}
+            myUserId={myUserId}
+            variant="drawer"
+          />
+        </div>
 
         <Modal
           open={pendingCheatEntry !== null}
@@ -812,6 +910,20 @@ function GameRoom({
               : t('game.cheat.confirmAttackBody')}
           </p>
         </Modal>
+        </div>
+        {/* Desktop chat sidebar — permanent, ~22rem wide. Hidden on mobile. */}
+        <aside
+          className="hidden h-auto w-80 shrink-0 self-stretch xl:flex 2xl:w-96"
+          data-testid="game-chat-sidebar"
+        >
+          <GameChatPanel
+            gameId={gameId}
+            open
+            onClose={() => undefined}
+            myUserId={myUserId}
+            variant="sidebar"
+          />
+        </aside>
       </div>
     </DndContext>
   );

@@ -14,6 +14,7 @@ import { AdminRatingConfigModule } from './modules/admin-rating-config/admin-rat
 import { MeModule } from './modules/me/me.module';
 import { CardBacksModule } from './modules/card-backs/card-backs.module';
 import { RatingModule } from './modules/rating/rating.module';
+import { HighlightsModule } from './modules/highlights/highlights.module';
 import { ProfileModule } from './modules/profile/profile.module';
 import { GamesModule } from './modules/games/games.module';
 import { LobbiesModule } from './modules/lobbies/lobbies.module';
@@ -63,6 +64,7 @@ import { LobbiesModule } from './modules/lobbies/lobbies.module';
     MeModule,
     CardBacksModule,
     RatingModule,
+    HighlightsModule,
     ProfileModule,
     GamesModule,
     LobbiesModule,

@@ -14,12 +14,18 @@ import {
   type GameState,
   type PlayerSeat,
 } from '@durak/game-engine';
-import type { ChatMessage, ChatMessageReply, Lobby } from '@durak/shared-types';
+import type {
+  ChatMessage,
+  ChatMessageReply,
+  Lobby,
+  PlayerReactionPayload,
+} from '@durak/shared-types';
 import {
   CHAT_HISTORY_LIMIT,
   CHAT_MESSAGE_MAX_LENGTH,
   CHAT_REPLY_SNIPPET_MAX_LENGTH,
   EMOJI_REACTIONS,
+  PLAYER_REACTION_RATE_LIMIT_MS,
 } from '@durak/shared-types';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { RedisService } from '../../infrastructure/redis/redis.service';
@@ -56,6 +62,8 @@ export const GAME_CHAT_REACTIONS_SUFFIX = ':chat:reactions';
 export const CHAT_RATE_KEY_PREFIX = 'chat-rate:';
 /** Minimum interval between two chat sends from the same user, in ms. */
 export const CHAT_RATE_LIMIT_MS = 1000;
+/** Per-(game,user) rate-limit gate for in-game seat reactions. */
+export const REACTION_RATE_KEY_PREFIX = 'reaction-rate:';
 /** Reverse-lookup: `userInGame:<userId>` -> gameId. */
 export const USER_IN_GAME_KEY_PREFIX = 'userInGame:';
 /** Index of live games (sorted-set, score=createdAt epoch ms) for /health. */
@@ -215,6 +223,12 @@ interface GameEventBus {
     gameId: string,
     update: { messageId: string; userId: string; emoji: string | null },
   ): void;
+  /**
+   * Transient seat-side reaction — gateway broadcasts to the per-game room so
+   * every client renders a floating bubble above the named user's seat.
+   * Never persisted.
+   */
+  playerReaction(gameId: string, payload: PlayerReactionPayload): void;
 }
 
 const NOOP_BUS: GameEventBus = {
@@ -222,6 +236,7 @@ const NOOP_BUS: GameEventBus = {
   gameEnded: () => undefined,
   chatMessage: () => undefined,
   chatReaction: () => undefined,
+  playerReaction: () => undefined,
 };
 
 function gameKey(id: string): string {
@@ -268,6 +283,10 @@ const VALID_REACTIONS = new Set<string>(EMOJI_REACTIONS);
 
 function chatRateKey(gameId: string, userId: string): string {
   return `${CHAT_RATE_KEY_PREFIX}${gameId}:${userId}`;
+}
+
+function reactionRateKey(gameId: string, userId: string): string {
+  return `${REACTION_RATE_KEY_PREFIX}${gameId}:${userId}`;
 }
 
 function generateChatMessageId(): string {
@@ -762,6 +781,50 @@ export class GamesService {
 
     this.bus.chatReaction(gameId, { messageId, userId, emoji: next });
     return { messageId, userId, emoji: next };
+  }
+
+  /**
+   * Record a transient in-game seat reaction. Validates whitelist + membership
+   * + rate-limit; broadcasts via the bus on success. Nothing is persisted —
+   * reconnecting clients miss reactions that fired while away. Mirrors the
+   * `appendChatMessage` shape so the gateway path is uniform.
+   */
+  async recordReaction(
+    gameId: string,
+    userId: string,
+    emoji: string,
+  ): Promise<PlayerReactionPayload> {
+    if (typeof emoji !== 'string' || !VALID_REACTIONS.has(emoji)) {
+      throw new BadRequestException({
+        code: 'REACTION_INVALID',
+        message: 'Unsupported reaction',
+      });
+    }
+    const state = await this.tryGet(gameId);
+    if (!state || !state.players.some((p) => p.id === userId)) {
+      throw new NotFoundException({ code: 'GAME_NOT_FOUND', message: 'Game not found' });
+    }
+    // Per-user rate-limit (1500ms) via SET NX PX, exactly like chat sends.
+    const setRes = await this.redis.client.set(
+      reactionRateKey(gameId, userId),
+      '1',
+      'PX',
+      PLAYER_REACTION_RATE_LIMIT_MS,
+      'NX',
+    );
+    if (setRes !== 'OK') {
+      throw new BadRequestException({
+        code: 'REACTION_RATE_LIMIT',
+        message: 'Too many reactions — slow down',
+      });
+    }
+    const payload: PlayerReactionPayload = {
+      userId,
+      emoji,
+      timestamp: new Date().toISOString(),
+    };
+    this.bus.playerReaction(gameId, payload);
+    return payload;
   }
 
   /**

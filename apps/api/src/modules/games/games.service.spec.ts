@@ -439,6 +439,7 @@ describe('GamesService.applyGameCommand (authorisation)', () => {
       gameEnded: () => updates.push({ over: true }),
       chatMessage: () => undefined,
       chatReaction: () => undefined,
+      playerReaction: () => undefined,
     });
     // Find any legal attack the engine accepts for the current attacker.
     const attacker = state.players[state.currentAttackerIndex];
@@ -490,6 +491,7 @@ describe('GamesService chat', () => {
       gameEnded: () => undefined,
       chatMessage: (gid, msg) => bus.messages.push({ gameId: gid, messageId: msg.id }),
       chatReaction: (gid, update) => bus.reactions.push({ gameId: gid, ...update }),
+      playerReaction: () => undefined,
     });
     ({ gameId } = await svc.createFromLobby(makeLobby()));
   });
@@ -897,6 +899,7 @@ describe('GamesService.concedeGame', () => {
       gameEnded: (s) => ended.push({ loserPlayerId: s.loserPlayerId }),
       chatMessage: () => undefined,
       chatReaction: () => undefined,
+      playerReaction: () => undefined,
     });
     const { gameId } = await svc.createFromLobby(makeLobby());
     await pause.markDisconnected(gameId, 'ub');

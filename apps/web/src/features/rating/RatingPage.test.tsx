@@ -29,6 +29,13 @@ vi.mock('@/features/games/api', () => ({
   fetchGame: vi.fn(),
 }));
 
+// Highlights API is the third networked dependency the page renders — return
+// empty so the section hides itself and we keep the existing empty-state
+// assertions valid.
+vi.mock('@/features/highlights/api', () => ({
+  fetchHighlights: vi.fn(async () => ({ items: [] })),
+}));
+
 // Bypass WS bootstrap so the rating page renders in jsdom.
 vi.mock('@/features/lobbies/api', () => ({
   createLobby: vi.fn(),

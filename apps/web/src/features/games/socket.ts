@@ -105,3 +105,15 @@ export function sendPauseVote(
 ): Promise<{ ok: true }> {
   return emitWithAck(gamesSocket, GAME_EVENTS.pauseVote, { gameId, vote });
 }
+
+/**
+ * Fire a seat-side emoji reaction. The server broadcasts it back to every
+ * client in the game (including the sender), and clients render an ephemeral
+ * floating bubble over the corresponding seat for ~2.5s.
+ */
+export function sendPlayerReaction(
+  gameId: string,
+  emoji: string,
+): Promise<{ ok: true }> {
+  return emitWithAck(gamesSocket, GAME_EVENTS.reactionSend, { gameId, emoji });
+}

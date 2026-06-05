@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { GAME_EVENTS } from '@durak/shared-types';
+import { GAME_EVENTS, PLAYER_REACTION_BUBBLE_TTL_MS } from '@durak/shared-types';
 import { getApiErrorCode } from '@/lib/api';
 import { fetchGame, fetchSameComposition, listGames, type FetchGameResponse } from './api';
 import {
@@ -19,6 +19,7 @@ import {
   sendChatReaction,
   sendGameCommand,
   sendPauseVote,
+  sendPlayerReaction,
   subscribeGame,
   useGameSocket,
 } from './socket';
@@ -41,6 +42,7 @@ import type {
   GameStateEvent,
   PauseInfo,
   PauseVote,
+  PlayerReactionPayload,
 } from './types';
 
 export const GAMES_QUERY_KEY = 'games' as const;
@@ -549,7 +551,9 @@ export interface UseGameChatResult {
  * `game:chat_message` broadcast updates both consumers in one pass.
  *
  * `unreadCount` tracks messages received since the last `markAllRead()` call —
- * the page should call it whenever the panel becomes visible.
+ * the page should call it whenever the panel becomes visible. Own messages
+ * count too: a send from a second device (or even the same device while the
+ * panel is closed) bumps the badge so the user is never silently behind.
  */
 export function useGameChat(gameId: string | undefined): UseGameChatResult {
   useGameSocket();
@@ -696,4 +700,87 @@ export function usePauseVote(
   );
 
   return { pauseInfo, myVote, vote, isSubmitting };
+}
+
+/** Per-seat live reaction state — what to render above each user's seat. */
+export interface ActiveReaction {
+  emoji: string;
+  /** ISO timestamp returned by the server — drives the React `key` for replays. */
+  timestamp: string;
+}
+
+export interface UseGameReactionsResult {
+  /** Current floating reaction per user. Missing entry = nothing to show. */
+  reactions: Record<string, ActiveReaction>;
+  /** Fire one's own reaction. Throws SocketAckError-style on rate-limit. */
+  send: (emoji: string) => Promise<void>;
+}
+
+/**
+ * Live seat-reaction subscription. Listens for `game:player_reaction` and keeps
+ * a `userId -> { emoji, timestamp }` snapshot of what's currently floating. An
+ * entry is auto-cleared after {@link PLAYER_REACTION_BUBBLE_TTL_MS}; sending a
+ * fresh reaction overrides the previous one for the same user immediately.
+ *
+ * The store lives in component state (not the TanStack cache) because the data
+ * is purely ephemeral — there's no other consumer and nothing to persist.
+ */
+export function useGameReactions(
+  gameId: string | undefined,
+): UseGameReactionsResult {
+  useGameSocket();
+  const [reactions, setReactions] = useState<Record<string, ActiveReaction>>({});
+  // Track per-user expiry timers so a new reaction cancels the previous fade.
+  const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  useEffect(() => {
+    if (!gameId) return;
+    const socket = gamesSocket;
+    // Capture the ref's `current` into a local for the cleanup — the linter
+    // (rightfully) complains that `timersRef.current` could have changed by the
+    // time the cleanup fires. The Map itself is the long-lived object we want
+    // to drain, so capturing once on mount is exactly the right thing.
+    const timers = timersRef.current;
+
+    const onReaction = (payload: PlayerReactionPayload) => {
+      const { userId, emoji, timestamp } = payload;
+      // Reset any pending expiry for this seat so the new bubble runs the full
+      // animation cycle.
+      const prev = timers.get(userId);
+      if (prev) clearTimeout(prev);
+      setReactions((cur) => ({ ...cur, [userId]: { emoji, timestamp } }));
+      const handle = setTimeout(() => {
+        timers.delete(userId);
+        setReactions((cur) => {
+          // Only drop the entry if the timestamp is still the one we scheduled
+          // for — protects against a races where a newer reaction arrived
+          // before the timer cleanup ran but after `clearTimeout` failed (very
+          // unlikely in practice, this is just defensive).
+          if (cur[userId]?.timestamp !== timestamp) return cur;
+          const next = { ...cur };
+          delete next[userId];
+          return next;
+        });
+      }, PLAYER_REACTION_BUBBLE_TTL_MS);
+      timers.set(userId, handle);
+    };
+
+    socket.on(GAME_EVENTS.playerReaction, onReaction);
+    return () => {
+      socket.off(GAME_EVENTS.playerReaction, onReaction);
+      // Drain pending timers on unmount so we don't leak.
+      for (const handle of timers.values()) clearTimeout(handle);
+      timers.clear();
+    };
+  }, [gameId]);
+
+  const send = useCallback(
+    async (emoji: string): Promise<void> => {
+      if (!gameId) throw new Error('GAME_ID_MISSING');
+      await sendPlayerReaction(gameId, emoji);
+    },
+    [gameId],
+  );
+
+  return { reactions, send };
 }

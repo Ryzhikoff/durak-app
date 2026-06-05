@@ -47,6 +47,47 @@
     "submitting": "Создаём...",
     "loginHelp": "Только латиница, цифры, точка, дефис, подчёркивание"
   },
+  "highlights": {
+    "title": "Интересное",
+    "period": {
+      "day": "за день",
+      "week": "за неделю"
+    },
+    "titles": {
+      "cheater_day": "🤡 Жулик дня",
+      "cheater_week": "🤡 Жулик недели",
+      "sneaky_week": "🎭 Хитрец недели",
+      "sheriff_week": "🕵️ Шериф недели",
+      "winner_day": "👑 Победитель дня",
+      "winner_week": "👑 Победитель недели",
+      "no_loss_day": "🛡️ Без проигрышей за день",
+      "no_loss_week": "🛡️ Без проигрышей за неделю",
+      "dunce_week": "😩 Дурак недели",
+      "translator_week": "🔁 Переводчик недели"
+    },
+    "value": {
+      "games_one": "{{count}} игра",
+      "games_few": "{{count}} игры",
+      "games_many": "{{count}} игр",
+      "games_other": "{{count}} игр",
+      "wins_one": "{{count}} победа",
+      "wins_few": "{{count}} победы",
+      "wins_many": "{{count}} побед",
+      "wins_other": "{{count}} побед",
+      "losses_one": "{{count}} поражение",
+      "losses_few": "{{count}} поражения",
+      "losses_many": "{{count}} поражений",
+      "losses_other": "{{count}} поражений",
+      "cheats_one": "{{count}} раз",
+      "cheats_few": "{{count}} раза",
+      "cheats_many": "{{count}} раз",
+      "cheats_other": "{{count}} раз",
+      "translates_one": "{{count}} перевод",
+      "translates_few": "{{count}} перевода",
+      "translates_many": "{{count}} переводов",
+      "translates_other": "{{count}} переводов"
+    }
+  },
   "home": {
     "title": "Рейтинг",
     "subtitle": "Лучшие игроки по консервативному рейтингу TrueSkill.",
@@ -277,6 +318,9 @@
         "concedeShort": "сдать",
         "pending": "не голосовал"
       }
+    },
+    "reactions": {
+      "send": "Реакция"
     },
     "chat": {
       "title": "Чат",
@@ -579,6 +623,8 @@
     "CHAT_TEXT_INVALID": "Некорректное сообщение",
     "CHAT_REPLY_NOT_FOUND": "Сообщение не найдено",
     "CHAT_REACTION_INVALID": "Недопустимая реакция",
+    "REACTION_RATE_LIMIT": "Слишком часто",
+    "REACTION_INVALID": "Некорректная реакция",
     "generic": "Что-то пошло не так",
     "boundary": {
       "title": "Что-то пошло не так",

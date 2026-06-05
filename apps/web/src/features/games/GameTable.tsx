@@ -164,9 +164,12 @@ function AttackEntryView({
         />
       ) : null}
       {entry.beatenBy ? (
-        /* Defense card lies ON TOP of the attack, offset up-right and tilted. */
+        /* Defense card lies ON TOP of the attack, offset down-right and
+         * tilted enough that the underlying attack card's top-left corner
+         * (its rank + suit) stays clearly visible. 8° was too subtle —
+         * the suit on the bottom card disappeared under the overlay. */
         <div
-          className="absolute left-[10px] top-[-6px] z-10 rotate-[8deg]"
+          className="absolute left-[14px] top-[2px] z-10 rotate-[16deg]"
           style={{ transformOrigin: 'center' }}
           data-testid={`attack-${entry.id}-beaten`}
         >
