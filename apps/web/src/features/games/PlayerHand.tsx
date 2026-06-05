@@ -3,14 +3,15 @@ import clsx from 'clsx';
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { PlayingCard } from './PlayingCard';
-import { sortHandStrongLeft } from './handSort';
+import { sortHand } from './handSort';
+import { useAuthStore } from '@/stores/auth.store';
 import type { Card, Suit } from './types';
 
 export const HAND_CARD_DRAG_ID_PREFIX = 'hand-card:';
 
 interface PlayerHandProps {
   hand: Card[];
-  /** Trump suit determines the strong-bucket boundary in `sortHandStrongLeft`. */
+  /** Trump suit determines the strong-bucket boundary in the chosen sorter. */
   trumpSuit: Suit | null;
   /**
    * The card currently being dragged, if any. Used to render the source card
@@ -26,14 +27,18 @@ interface PlayerHandProps {
  * every card looks the same, and the server decides legality.
  */
 export function PlayerHand({ hand, trumpSuit, draggingCardId }: PlayerHandProps) {
+  // Pull the viewer's sort preference from the auth store. Falls back to
+  // 'power' (the legacy mode) when the user record is missing — keeps
+  // anonymous-rendering paths (storybook, tests) deterministic.
+  const handSortMode = useAuthStore((s) => s.user?.handSortMode);
   const sortedHand = useMemo(
-    () => sortHandStrongLeft(hand, trumpSuit),
-    [hand, trumpSuit],
+    () => sortHand(hand, trumpSuit, handSortMode),
+    [hand, trumpSuit, handSortMode],
   );
   return (
     <div
       className={clsx(
-        'flex w-full items-end justify-center gap-1 overflow-x-auto pb-1 pt-3',
+        'flex w-full items-end justify-center gap-1 overflow-x-auto pb-1 pt-3 xl:pt-4',
       )}
       data-testid="player-hand"
     >
@@ -46,7 +51,8 @@ export function PlayerHand({ hand, trumpSuit, draggingCardId }: PlayerHandProps)
           card={card}
           dimmed={draggingCardId === card.id}
           // Slight overlap so a 6-card hand still fits on a phone screen.
-          className={clsx(i > 0 ? '-ml-3' : '')}
+          // Wider overlap on xl to keep the bigger lg cards centred.
+          className={clsx(i > 0 ? '-ml-3 xl:-ml-6' : '')}
         />
       ))}
     </div>
@@ -81,9 +87,13 @@ function DraggableHandCard({ card, dimmed, className }: DraggableHandCardProps) 
       style={style}
       {...listeners}
       {...attributes}
-      className={clsx('cursor-grab active:cursor-grabbing', className)}
+      className={clsx(
+        'cursor-grab transition-transform duration-200 ease-out hover:-translate-y-1 active:cursor-grabbing xl:hover:-translate-y-2',
+        className,
+      )}
       data-testid={`hand-card-${card.id}`}
     >
+      {/* `md` baseline; SIZE_CLASS adds an xl: bump for the desktop layout. */}
       <PlayingCard card={card} size="md" dimmed={isDragging || dimmed} />
     </div>
   );

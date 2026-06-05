@@ -133,20 +133,32 @@ function renderWithProviders(ui: React.ReactNode) {
 }
 
 describe('GamePage smoke', () => {
-  it('renders the table, opponent, status bar and the player hand', async () => {
+  it('renders the info-strip, players row, table and the player hand', async () => {
     renderWithProviders(<GamePage />);
-    // Header chip + status bar both show the attacking banner.
+    // The "Ходит Me" line appears in the info-strip status pill AND the
+    // status-bar fallback below the table — so we expect ≥1 occurrence.
     expect(
       (await screen.findAllByText(/Ходит\s+Me/i)).length,
     ).toBeGreaterThan(0);
-    // Trump label is present.
-    expect(screen.getByText(/Козырь/i)).toBeInTheDocument();
+    // Info-strip groups bout / status / discard / buttons. Trump glyph + deck
+    // count moved into the dedicated `DeckStack` block (rendered separately
+    // alongside the felt table on desktop, above the players row on mobile).
+    expect(screen.getByTestId('game-info-strip')).toBeInTheDocument();
+    // Deck stack rendered with the trump card visible (mock has deckSize=18
+    // and a hearts queen trump card).
+    expect(screen.getAllByTestId('deck-stack').length).toBeGreaterThan(0);
+    expect(screen.getAllByTestId('deck-trump-card').length).toBeGreaterThan(0);
     // Table container rendered.
     expect(screen.getByTestId('game-table')).toBeInTheDocument();
-    // New status bar replaces the old toast feed.
+    // Status bar still present below the table.
     expect(screen.getByTestId('game-status-bar')).toBeInTheDocument();
-    // Opponent rendered.
-    expect(screen.getByTestId('opponent-u-opp')).toBeInTheDocument();
+    // Players row holds opponents only — the viewer is not listed there.
+    // The same opponent chip is rendered in two containers — the mobile
+    // players-row (xl:hidden) AND the desktop radial-seat layout — so we
+    // expect at least one match and exactly zero self-chips.
+    expect(screen.getByTestId('players-row')).toBeInTheDocument();
+    expect(screen.getAllByTestId('opponent-u-opp').length).toBeGreaterThan(0);
+    expect(screen.queryByTestId('player-self-u-me')).not.toBeInTheDocument();
     // Own hand rendered.
     expect(screen.getByTestId('player-hand')).toBeInTheDocument();
     // Each hand card is a draggable wrapper.

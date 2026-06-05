@@ -79,10 +79,24 @@ export class MeService {
       }
     }
 
+    if (
+      dto.handSortMode !== undefined &&
+      dto.handSortMode !== 'power' &&
+      dto.handSortMode !== 'suit'
+    ) {
+      // Class-validator already rejects this at the controller boundary, but
+      // we guard again for direct `MeService.run` callers (tests, scripts).
+      throw new BadRequestException({
+        code: 'HAND_SORT_MODE_INVALID',
+        message: 'handSortMode must be "power" or "suit"',
+      });
+    }
+
     const data: Prisma.UserUpdateInput = {};
     if (dto.nickname !== undefined) data.nickname = dto.nickname;
     if (dto.cardBackId !== undefined) data.cardBackId = dto.cardBackId;
     if (dto.randomCardBack !== undefined) data.randomCardBack = dto.randomCardBack;
+    if (dto.handSortMode !== undefined) data.handSortMode = dto.handSortMode;
 
     try {
       const updated = await prisma.user.update({

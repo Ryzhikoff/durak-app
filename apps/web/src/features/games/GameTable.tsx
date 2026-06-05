@@ -68,18 +68,18 @@ export function GameTable({
     <div
       ref={setNodeRef}
       className={clsx(
-        'relative flex min-h-[160px] w-full flex-wrap items-center justify-center gap-3 rounded-2xl border p-3 sm:min-h-[200px]',
-        'transition-colors',
+        'felt-table relative flex min-h-[180px] w-full flex-wrap items-center justify-center gap-3 rounded-3xl border-2 p-4 sm:min-h-[220px] xl:min-h-[360px] xl:gap-5 xl:p-8',
+        'bg-emerald-950 transition-colors',
         centerActive
           ? isOver
-            ? 'border-accent bg-accent/15 ring-2 ring-accent/60'
-            : 'border-accent/60 bg-surface/60'
-          : 'border-border bg-surface/60',
+            ? 'border-accent ring-2 ring-accent/70'
+            : 'border-accent/50'
+          : 'border-emerald-900/80',
       )}
       data-testid="game-table"
     >
       {attacks.length === 0 ? (
-        <div className="text-xs text-textMuted">—</div>
+        <div className="text-xs text-emerald-200/40">—</div>
       ) : null}
       {attacks.map((entry) => {
         const isUnbeaten = entry.beatenBy === null;
@@ -130,12 +130,12 @@ function AttackEntryView({
   });
 
   const isBeaten = entry.beatenBy !== null;
-  // Wrap sized to the card itself (md = 56x80, sm md = 64x96). Drop area is the
-  // card outline; overflow stays visible so the rotated defense card on top can
-  // poke a few pixels outside without being clipped.
+  // Wrap sized to the card itself (md = 56x80, sm md = 64x96, xl md = 80x112).
+  // Drop area is the card outline; overflow stays visible so the rotated
+  // defense card on top can poke a few pixels outside without being clipped.
   const wrap = clsx(
     'relative rounded-lg transition-shadow overflow-visible',
-    'h-20 w-14 sm:h-24 sm:w-16',
+    'h-20 w-14 sm:h-24 sm:w-16 xl:h-28 xl:w-20',
     highlighted
       ? isOver
         ? 'ring-4 ring-accent drop-shadow-[0_0_8px_rgba(96,165,250,0.95)]'
@@ -146,11 +146,11 @@ function AttackEntryView({
   return (
     <div ref={setNodeRef} className={wrap} data-testid={`attack-${entry.id}`}>
       {/* Attack card sits in the wrap. */}
-      <div className="absolute inset-0">
+      <div className="card-attack-anim absolute inset-0">
         <PlayingCard
           card={entry.card}
           size="md"
-          className={isBeaten ? 'opacity-90' : ''}
+          className={clsx('shadow-xl', isBeaten ? 'opacity-90' : '')}
         />
       </div>
       {canNoticeAttack && onNoticeCheat ? (
@@ -169,11 +169,10 @@ function AttackEntryView({
          * (its rank + suit) stays clearly visible. 8° was too subtle —
          * the suit on the bottom card disappeared under the overlay. */
         <div
-          className="absolute left-[14px] top-[2px] z-10 rotate-[16deg]"
-          style={{ transformOrigin: 'center' }}
+          className="card-beat-anim absolute left-[14px] top-[2px] z-10"
           data-testid={`attack-${entry.id}-beaten`}
         >
-          <PlayingCard card={entry.beatenBy} size="md" />
+          <PlayingCard card={entry.beatenBy} size="md" className="shadow-xl" />
           {canNoticeBeat && onNoticeCheat ? (
             <NoticeCheatButton
               entryId={entry.id}
@@ -199,22 +198,23 @@ interface NoticeCheatButtonProps {
 }
 
 /**
- * Small clickable flag in the top-right corner of a table card. Stops drag
- * propagation so DnD doesn't fight the tap, and prevents the drop zone behind
- * from also handling the event.
+ * Clickable flag centred on the card being flagged. For 'attack' the parent
+ * is the entry wrap so it sits centred on the attack; for 'beat' the parent
+ * is the rotated defense overlay so it inherits the tilt and ends up centred
+ * on the defense card. Stops drag propagation so DnD doesn't fight the tap.
  */
 function NoticeCheatButton({
   entryId,
   onNoticeCheat,
   ariaLabel,
-  position,
+  position: _position,
   testId,
 }: NoticeCheatButtonProps) {
   const className = clsx(
-    'absolute z-20 inline-flex h-6 w-6 items-center justify-center rounded-full',
+    'absolute z-20 inline-flex h-7 w-7 items-center justify-center rounded-full',
+    'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2',
     'bg-rose-600 text-white shadow-md ring-1 ring-rose-300/60',
     'hover:bg-rose-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300',
-    position === 'attack' ? '-top-1.5 -right-1.5' : '-top-1.5 -right-2',
   );
   return (
     <button

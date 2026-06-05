@@ -1,4 +1,12 @@
-import { IsBoolean, IsOptional, IsString, MaxLength, MinLength, Matches } from 'class-validator';
+import {
+  IsBoolean,
+  IsIn,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+  Matches,
+} from 'class-validator';
 import { Transform } from 'class-transformer';
 import {
   NICKNAME_MAX_LENGTH,
@@ -25,4 +33,8 @@ export class UpdateMeDto {
   @IsOptional()
   @IsBoolean()
   randomCardBack?: boolean;
+
+  @IsOptional()
+  @IsIn(['power', 'suit'])
+  handSortMode?: 'power' | 'suit';
 }

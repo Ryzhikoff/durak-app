@@ -5,6 +5,18 @@
 
 // ---------- User (self / public view) ----------
 
+/**
+ * User-selectable strategy for ordering cards in the viewer's own hand. The
+ * server never re-sorts hands itself — `Card[]` is shipped in deal-order and
+ * the client renders it via the chosen sort function.
+ *
+ * - `power` (legacy default): jokers first, trumps next (rank DESC),
+ *   non-trumps last (rank DESC). "Strongest on the left."
+ * - `suit`: jokers first, trumps next (rank DESC), non-trumps grouped by
+ *   suit (alphabetical, trump suit skipped) and ASC within each suit.
+ */
+export type HandSortMode = 'power' | 'suit';
+
 export interface User {
   id: string;
   login: string;
@@ -15,6 +27,8 @@ export interface User {
   cardBackId: string;
   randomCardBack: boolean;
   customCardBackUrl: string | null;
+  /** See {@link HandSortMode}. Defaults to `'power'` for legacy users. */
+  handSortMode: HandSortMode;
   /**
    * If the user currently participates in a live (non-finished) game, this is
    * the gameId. Set on /auth/me and /auth/login responses so the UI can offer
@@ -46,6 +60,7 @@ export interface UpdateMeRequest {
   nickname?: string;
   cardBackId?: string;
   randomCardBack?: boolean;
+  handSortMode?: HandSortMode;
 }
 
 // ---------- Admin setup ----------
@@ -367,6 +382,48 @@ export interface GameListQuery {
 export interface SameCompositionResponse {
   items: GameSummary[];
   total: number;
+}
+
+// ---------- Active live games (spectator mode) ----------
+
+/**
+ * Compact public summary of an active (non-finished) game. Used by the
+ * home-page "Идущие игры" list so any logged-in user can pick a game to
+ * watch as a spectator. No card data is exposed — only player identities,
+ * hand sizes, current attacker/defender, deck size, trump suit, bout number.
+ */
+export interface ActiveGamePlayer {
+  userId: string;
+  nickname: string;
+  avatarUrl: string | null;
+  handSize: number;
+  isAttacker: boolean;
+  isDefender: boolean;
+  isFinished: boolean;
+}
+
+export interface ActiveGameSummary {
+  gameId: string;
+  /** ISO 8601 timestamp of game creation. Empty string when missing in Redis. */
+  startedAt: string;
+  status: Exclude<
+    | 'dealing'
+    | 'bout_attack'
+    | 'bout_defense'
+    | 'bout_settle'
+    | 'bout_take_pending'
+    | 'game_over',
+    'game_over'
+  >;
+  players: ActiveGamePlayer[];
+  /** null when the engine hasn't picked a trump yet (briefly during dealing). */
+  trumpSuit: 'hearts' | 'diamonds' | 'clubs' | 'spades' | null;
+  deckSize: number;
+  boutNumber: number;
+}
+
+export interface ActiveGamesResponse {
+  items: ActiveGameSummary[];
 }
 
 // ---------- Admin: rating config ----------

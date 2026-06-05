@@ -31,6 +31,9 @@ export type {
 } from '@durak/game-engine';
 
 export type {
+  ActiveGamePlayer,
+  ActiveGameSummary,
+  ActiveGamesResponse,
   ChatMessage,
   ChatMessageReply,
   ChatReactionUpdate,
@@ -79,6 +82,12 @@ export interface ClientGameState {
   currentDefenderId: string;
   passedPlayerIds: string[];
   players: ClientGamePlayer[];
+  /**
+   * True when the snapshot was redacted for a spectator. The viewer is NOT in
+   * `players`; no hand is revealed for any player. Drives the read-only UI on
+   * the game page (no command buttons, no drag, chat input disabled).
+   */
+  isSpectator?: boolean;
 }
 
 export interface GameSubscribePayload {

@@ -29,7 +29,12 @@ import { SessionService } from '../auth/session.service';
 import { GamesService } from './games.service';
 import { GamesPauseService } from './games-pause.service';
 import { GameCommandWsDto } from './dto/game-command.dto';
-import { redactForPlayer, type ClientGameState, type GameUserProfiles } from './game-redactor';
+import {
+  redactForPlayer,
+  SPECTATOR_VIEWER_ID,
+  type ClientGameState,
+  type GameUserProfiles,
+} from './game-redactor';
 
 interface AckErr {
   error: { code: string; message: string; details?: unknown };
@@ -188,6 +193,12 @@ export class GamesGateway
       if (state.status === 'game_over') return;
       const seat = state.players.find((p) => p.id === userId);
       if (!seat) return;
+      // A finished player is no longer actively participating — their tab can
+      // disconnect freely without flipping the game into a paused state and
+      // forcing the still-playing seats to vote. Silently ignore. (Mirrored on
+      // reconnect: the resubscribe path also skips the reconnect bookkeeping
+      // when the user is in `finishedPlayers` — see `onSubscribe`.)
+      if (state.finishedPlayers.includes(userId)) return;
       // The disconnected user can't be the only seat in the room — that's
       // typically the "everyone left" case. Still flag the pause so the
       // returning player sees a coherent state, but do nothing else.
@@ -324,14 +335,24 @@ export class GamesGateway
       const userId = this.requireUserId(client);
       const gameId = this.requireGameId(body);
       const state = await this.games.get(gameId);
-      if (!state.players.some((p) => p.id === userId)) {
-        throw new GatewayError('GAME_NOT_FOUND', 'Game not found');
+      const isMember = state.players.some((p) => p.id === userId);
+      // Spectators (non-members) get a redacted snapshot with all hands
+      // hidden. They subscribe to the same room so live broadcasts flow to
+      // them automatically — the broadcast loop disambiguates via socket
+      // metadata + the redactor's sentinel viewer id.
+      if (!isMember) {
+        client.data.spectator = true;
+      } else {
+        client.data.spectator = false;
       }
       const profiles = await this.games.getProfiles(gameId);
       const recentEvents = await this.games.getRecentEvents(gameId);
       // Chat history piggybacks on the initial subscribe so the panel can hydrate
       // without a second round-trip. Cheap: it's already a single LRANGE.
-      const chatHistory = await this.games.fetchChatHistory(gameId, userId);
+      // Spectators get the same chat history (read-only).
+      const chatHistory = isMember
+        ? await this.games.fetchChatHistory(gameId, userId)
+        : await this.games.fetchSpectatorChatHistory(gameId);
       await client.join(gameRoom(gameId));
       // Phase 8 — a reconnecting user gets the current pause snapshot in the
       // same round-trip. Also probes membership in the disconnected list so a
@@ -339,7 +360,19 @@ export class GamesGateway
       // clears the user from the pause without waiting for the connection
       // hook to fire a second time.
       let pauseInfo = await this.pause.get(gameId);
-      if (pauseInfo && pauseInfo.disconnectedUserIds.includes(userId)) {
+      // Finished players don't participate in the pause state machine — see
+      // `handleDisconnectAfterTeardown` which silently ignores their drops.
+      // Defensive guard for the symmetrical reconnect path: if for any reason
+      // a finished user appears in `disconnectedUserIds` (e.g. they finished
+      // mid-pause), we don't want re-subscribing to broadcast a pause/resume
+      // they were never really part of. Spectators are never in the
+      // pause-state machine so we skip this entirely for them.
+      if (
+        isMember &&
+        pauseInfo &&
+        pauseInfo.disconnectedUserIds.includes(userId) &&
+        !state.finishedPlayers.includes(userId)
+      ) {
         // The user is back — clear their disconnect mark now, exactly like
         // `handleConnection` would. `handleReconnect` also broadcasts the
         // appropriate `game:resumed` / `game:paused` event to the room so the
@@ -348,7 +381,7 @@ export class GamesGateway
         await this.handleReconnect(gameId, userId);
         pauseInfo = await this.pause.get(gameId);
       }
-      const snapshot = redactForPlayer(state, userId, profiles);
+      const snapshot = redactForPlayer(state, isMember ? userId : SPECTATOR_VIEWER_ID, profiles);
       // Push initial state straight to this socket (matches the lobbies pattern).
       client.emit(GAME_EVENTS.state, { state: snapshot });
       return { state: snapshot, recentEvents, chatHistory, pauseInfo };
@@ -471,7 +504,12 @@ export class GamesGateway
     return this.run(async () => {
       const userId = this.requireUserId(client);
       const gameId = this.requireGameId(body);
-      const messages = await this.games.fetchChatHistory(gameId, userId);
+      // Spectators are flagged at subscribe time. They get the same payload
+      // as participants (read-only on the client).
+      const isSpectator = client.data?.spectator === true;
+      const messages = isSpectator
+        ? await this.games.fetchSpectatorChatHistory(gameId)
+        : await this.games.fetchChatHistory(gameId, userId);
       return { messages };
     });
   }
@@ -528,7 +566,14 @@ export class GamesGateway
     for (const s of sockets ?? []) {
       const viewerId = (s.data?.userId as string | undefined) ?? '';
       if (!viewerId) continue;
-      const snapshot = redactForPlayer(state, viewerId, profiles);
+      // Spectator sockets get the no-hand variant; the flag was set at
+      // subscribe time so we don't need to re-check membership on every emit.
+      const isSpectator = s.data?.spectator === true;
+      const snapshot = redactForPlayer(
+        state,
+        isSpectator ? SPECTATOR_VIEWER_ID : viewerId,
+        profiles,
+      );
       try {
         s.emit(GAME_EVENTS.state, { state: snapshot });
         if (over) {

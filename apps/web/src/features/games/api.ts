@@ -1,5 +1,6 @@
 import { api } from '@/lib/api';
 import type {
+  ActiveGamesResponse,
   GameDetail,
   GameListQuery,
   GameListResponse,
@@ -10,6 +11,16 @@ import type { ClientGameState } from './types';
 
 export async function listGames(query: GameListQuery): Promise<GameListResponse> {
   const res = await api.get<GameListResponse>('/games', { params: query });
+  return res.data;
+}
+
+/**
+ * Fetch the list of currently-active (non-finished) games for the home-page
+ * spectator section. Auth-required; the server returns only public projections
+ * (player identities + hand sizes; never any card data).
+ */
+export async function listActiveGames(): Promise<ActiveGamesResponse> {
+  const res = await api.get<ActiveGamesResponse>('/games/active');
   return res.data;
 }
 

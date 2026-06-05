@@ -436,11 +436,18 @@ function reducePass(
   };
   const events: DomainEvent[] = [{ type: 'TablePassed', sayerId: player.id }];
 
-  // Did everyone who can still throw say pass?
+  // Did everyone who can still throw say pass? A player with an empty hand
+  // can't add anything to the table — they're treated as if they already
+  // pasted ("пасанул"). This matters in two scenarios:
+  //   - `bout_take_pending`: a thrower whose last card was just placed has
+  //     no further moves; the bout shouldn't wait on a meaningless click.
+  //   - `bout_settle`: the same player still doesn't owe a "бито" — the bout
+  //     can close as soon as everyone else with cards has acknowledged.
   const eligible = state.players.filter(
     (p) =>
       !state.finishedPlayers.includes(p.id) &&
       p.id !== state.players[state.currentDefenderIndex].id &&
+      p.hand.length > 0 &&
       policy.canThrow(state, p.id),
   );
   const allPassed = eligible.every((p) => next.passedPlayerIds.includes(p.id));

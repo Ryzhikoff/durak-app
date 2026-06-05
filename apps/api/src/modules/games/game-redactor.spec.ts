@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createGame, type GameState, type PlayerSeat } from '@durak/game-engine';
 import { DEFAULT_LOBBY_SETTINGS } from '@durak/shared-types';
-import { redactForPlayer, type GameUserProfiles } from './game-redactor';
+import { redactForPlayer, SPECTATOR_VIEWER_ID, type GameUserProfiles } from './game-redactor';
 
 const seats: PlayerSeat[] = [
   { id: 'ua', nickname: 'Alice' },
@@ -162,5 +162,45 @@ describe('redactForPlayer', () => {
     const snapshot = redactForPlayer(state, 'ua', {});
     expect(snapshot.currentAttackerId).toBe(state.players[state.currentAttackerIndex].id);
     expect(snapshot.currentDefenderId).toBe(state.players[state.currentDefenderIndex].id);
+  });
+
+  describe('spectator mode', () => {
+    it('hides every hand and sets isSpectator when viewer is the sentinel', () => {
+      const state = makeState();
+      const snapshot = redactForPlayer(state, SPECTATOR_VIEWER_ID, makeProfiles());
+      expect(snapshot.isSpectator).toBe(true);
+      expect(snapshot.players.every((p) => p.hand === undefined)).toBe(true);
+      // Public projections (handSize, deckSize, trump) are still there.
+      for (const seat of state.players) {
+        const view = snapshot.players.find((p) => p.id === seat.id)!;
+        expect(view.handSize).toBe(seat.hand.length);
+      }
+      expect(snapshot.deckSize).toBe(state.deck.length);
+      expect(snapshot.trumpSuit).toBe(state.trumpSuit);
+    });
+
+    it('leaks no card ids in the spectator snapshot', () => {
+      const state = makeState();
+      const snapshot = redactForPlayer(state, SPECTATOR_VIEWER_ID, makeProfiles());
+      const serialised = JSON.stringify(snapshot);
+      for (const seat of state.players) {
+        for (const card of seat.hand) {
+          expect(serialised).not.toContain(card.id);
+        }
+      }
+    });
+
+    it('treats unknown viewer id as spectator (isSpectator=true)', () => {
+      const state = makeState();
+      const snapshot = redactForPlayer(state, 'outsider', makeProfiles());
+      expect(snapshot.isSpectator).toBe(true);
+      expect(snapshot.players.every((p) => p.hand === undefined)).toBe(true);
+    });
+
+    it('does not set isSpectator for a seated viewer', () => {
+      const state = makeState();
+      const snapshot = redactForPlayer(state, 'ua', makeProfiles());
+      expect(snapshot.isSpectator).toBeUndefined();
+    });
   });
 });

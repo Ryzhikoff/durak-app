@@ -51,6 +51,12 @@ interface GameChatPanelProps {
    * placement via flex.
    */
   variant?: 'drawer' | 'sidebar';
+  /**
+   * When `true`, the input composer + reaction actions are hidden — the panel
+   * becomes a read-only feed. Used by the spectator UI: any logged-in user
+   * may watch and read chat, but only seated participants can post.
+   */
+  readOnly?: boolean;
 }
 
 type EmojiPickerTarget =
@@ -63,6 +69,7 @@ export function GameChatPanel({
   onClose,
   myUserId,
   variant = 'drawer',
+  readOnly = false,
 }: GameChatPanelProps) {
   const { t, i18n } = useTranslation();
   const { messages, send, react, isSending, markAllRead, refresh } = useGameChat(gameId);
@@ -220,6 +227,7 @@ export function GameChatPanel({
 
   const onChipClick = useCallback(
     (messageId: string, emoji: string, mine: boolean) => {
+      if (readOnly) return;
       // Server-side semantics handle toggle vs override. The optimistic patch
       // inside `react` keeps the UI snappy.
       void react(messageId, mine ? null : emoji).catch((err) => {
@@ -228,27 +236,35 @@ export function GameChatPanel({
         }
       });
     },
-    [react, t],
+    [react, t, readOnly],
   );
 
-  const onReply = useCallback((m: ChatMessage) => {
-    setReplyDraft({
-      messageId: m.id,
-      userId: m.userId,
-      nickname: m.nickname,
-      textSnippet: m.text.slice(0, 80),
-    });
-    setPicker(null);
-    requestAnimationFrame(() => inputRef.current?.focus());
-  }, []);
+  const onReply = useCallback(
+    (m: ChatMessage) => {
+      if (readOnly) return;
+      setReplyDraft({
+        messageId: m.id,
+        userId: m.userId,
+        nickname: m.nickname,
+        textSnippet: m.text.slice(0, 80),
+      });
+      setPicker(null);
+      requestAnimationFrame(() => inputRef.current?.focus());
+    },
+    [readOnly],
+  );
 
-  const onReactRequest = useCallback((messageId: string) => {
-    setPicker((cur) =>
-      cur && cur.kind === 'reaction' && cur.messageId === messageId
-        ? null
-        : { kind: 'reaction', messageId },
-    );
-  }, []);
+  const onReactRequest = useCallback(
+    (messageId: string) => {
+      if (readOnly) return;
+      setPicker((cur) =>
+        cur && cur.kind === 'reaction' && cur.messageId === messageId
+          ? null
+          : { kind: 'reaction', messageId },
+      );
+    },
+    [readOnly],
+  );
 
   const onToggleEmojiInput = useCallback(() => {
     setPicker((cur) => (cur && cur.kind === 'input' ? null : { kind: 'input' }));
@@ -334,7 +350,16 @@ export function GameChatPanel({
           </div>
         ) : null}
 
-        {replyDraft ? (
+        {readOnly ? (
+          <div
+            className="border-t border-border bg-surfaceAlt px-3 py-2 text-center text-xs text-textMuted"
+            data-testid="chat-readonly-notice"
+          >
+            {t('game.spectator.chatDisabled')}
+          </div>
+        ) : null}
+
+        {!readOnly && replyDraft ? (
           <div
             className="flex items-start gap-2 border-t border-border bg-surfaceAlt px-3 py-1.5"
             data-testid="chat-reply-banner"
@@ -361,8 +386,8 @@ export function GameChatPanel({
         ) : null}
 
         {/* Emoji picker — collapsible. Hidden by default; the Smile button or a
-            reaction request toggles it. */}
-        {picker ? (
+            reaction request toggles it. Suppressed in read-only spectator mode. */}
+        {picker && !readOnly ? (
           <div
             className="flex max-h-32 flex-wrap gap-0.5 overflow-y-auto border-t border-border bg-surfaceAlt px-2 py-1.5"
             data-testid="chat-emoji-picker"
@@ -389,6 +414,7 @@ export function GameChatPanel({
           </div>
         ) : null}
 
+        {readOnly ? null : (
         <form
           className="flex items-end gap-2 border-t border-border px-3 py-2"
           onSubmit={(e) => {
@@ -447,6 +473,7 @@ export function GameChatPanel({
             <Send className="h-4 w-4" aria-hidden />
           </Button>
         </form>
+        )}
     </>
   );
 

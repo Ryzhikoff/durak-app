@@ -27,6 +27,8 @@ vi.mock('@/features/games/api', () => ({
     }),
   ),
   fetchGame: vi.fn(),
+  // Phase 9 — active games section also lives on the home page.
+  listActiveGames: vi.fn(async () => ({ items: [] })),
 }));
 
 // Highlights API is the third networked dependency the page renders — return

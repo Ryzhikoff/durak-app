@@ -37,9 +37,10 @@ import {
 } from './GameTable';
 import { HAND_CARD_DRAG_ID_PREFIX, PlayerHand } from './PlayerHand';
 import { PlayingCard } from './PlayingCard';
-import { OpponentSeat, CheatAttemptsBadge } from './OpponentSeat';
-import { TrumpIndicator } from './TrumpIndicator';
-import { DiscardPile } from './DiscardPile';
+import { CheatAttemptsBadge } from './OpponentSeat';
+import { PlayerChip } from './PlayerChip';
+import { RadialOpponents } from './RadialOpponents';
+import { DeckStack } from './DeckStack';
 import { ActionBar } from './ActionBar';
 import { GameOverModal } from './GameOverModal';
 import { GameSettingsModal } from './GameSettingsModal';
@@ -148,11 +149,19 @@ function GameRoom({
     [],
   );
 
-  const myUserId = state.myUserId || me?.id || '';
+  // Spectators receive a redacted snapshot where `myUserId` is set to a
+  // sentinel ('__spectator__'). The page must treat them as read-only — no
+  // commands, no drag, no chat input, no reactions. The PauseOverlay still
+  // renders (informational); the GameOverModal still renders.
+  const isSpectator = state.isSpectator === true;
+  const myUserId = isSpectator ? '' : state.myUserId || me?.id || '';
   const pauseVote = usePauseVote(gameId, myUserId);
   const mySeat = useMemo(
-    () => state.players.find((p) => p.id === myUserId) ?? null,
-    [state.players, myUserId],
+    () =>
+      isSpectator
+        ? null
+        : (state.players.find((p) => p.id === myUserId) ?? null),
+    [state.players, myUserId, isSpectator],
   );
   const myHand = useMemo<PlayingCardType[]>(
     () => mySeat?.hand ?? [],
@@ -233,6 +242,10 @@ function GameRoom({
   const run = useCallback(
     async (command: GameCommand) => {
       if (sending) return;
+      // Spectators have no commands to send — the UI shouldn't be wired up to
+      // call this in the first place, but guard defensively so a stale event
+      // never reaches the server.
+      if (isSpectator) return;
       // Phase 8 — short-circuit while the game is paused. The server would
       // reject with GAME_PAUSED anyway; bailing here avoids a needless
       // round-trip and shows the user immediate feedback in the same
@@ -251,7 +264,7 @@ function GameRoom({
         setSending(false);
       }
     },
-    [sendCommand, t, sending, pauseInfo],
+    [sendCommand, t, sending, pauseInfo, isSpectator],
   );
 
   // -------- which drop zones are "active" right now --------
@@ -496,23 +509,30 @@ function GameRoom({
   const onPass = () =>
     void run({ type: 'pass', playerId: myUserId });
 
-  // -------- opponents arrangement --------
-  // Order opponents by seat going clockwise from the viewer. Engine's
-  // state.players array is already in stable seat order around the table, so
-  // we just rotate it so that "me" sits at index 0 and the player to my left
-  // (next clockwise) is first in the opponents list. This gives every viewer
-  // the SAME relative geometry — the active attacker/defender highlight is
-  // still drawn via colored rings, but their visual slot doesn't move.
-  const opponents = useMemo(() => {
+  // -------- players row ordering (clockwise from viewer) -----------------
+  // Engine's `state.players` is already in stable seat order around the
+  // table. We rotate the array so that "me" sits first and the player to my
+  // left (next clockwise) follows immediately. The new layout collapses the
+  // top/side seat grid into one horizontal strip — every viewer sees the
+  // same relative geometry: themselves on the left, then clockwise round.
+  // Opponents only: skip the viewer themselves and rotate the engine seat
+  // order so the first chip is the next clockwise neighbour. Every client sees
+  // the same physical seating relative to themselves.
+  // Spectators are not in `state.players`, so we render every seat in raw
+  // engine order — there's no "me" to anchor against.
+  const playersInOrder = useMemo<ClientGamePlayer[]>(() => {
+    if (isSpectator) return state.players;
     const myIndex = state.players.findIndex((p) => p.id === myUserId);
-    if (myIndex < 0) return state.players.filter((p) => p.id !== myUserId);
+    if (myIndex < 0) {
+      // Desync fallback — show everyone in raw engine order.
+      return state.players;
+    }
     const ordered: ClientGamePlayer[] = [];
     for (let i = 1; i < state.players.length; i++) {
       ordered.push(state.players[(myIndex + i) % state.players.length]);
     }
     return ordered;
-  }, [state.players, myUserId]);
-  const seats = arrangeOpponents(opponents);
+  }, [state.players, myUserId, isSpectator]);
 
   // -------- default status (used by status-bar fallback + header chip) ----
   const defaultStatus = useMemo(() => {
@@ -598,322 +618,314 @@ function GameRoom({
       onDragEnd={onDragEnd}
       onDragCancel={onDragCancel}
     >
-      {/* Layout:
-          - mobile / tablet (< xl): chat is a drawer, the column takes 100% width.
-          - desktop (xl+): chat is a permanent right sidebar; the game column
-            takes the remaining width.
-          Wrapping in a flex row that becomes a no-op below xl preserves the
-          original layout's vertical-stack behaviour. */}
-      <div className="flex w-full gap-3 xl:items-stretch">
-        <div className="flex flex-1 flex-col gap-3" data-testid="game-room">
-        <header className="flex items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-2 text-textMuted">
-            <span>{t('game.bout', { number: state.boutNumber })}</span>
-            {cheatingOn && mySeat ? (
-              <CheatAttemptsBadge
-                remaining={mySeat.cheatAttemptsRemaining}
-                ariaLabel={t('game.cheat.attemptsRemaining', {
-                  count: mySeat.cheatAttemptsRemaining,
-                })}
-              />
-            ) : null}
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="rounded-md bg-surfaceAlt px-2 py-1 font-medium">
-              {defaultStatus}
-            </div>
-            {/* Chat-toggle button — drawer mode only. On xl+ the chat sidebar
-                is always visible so the button collapses out. */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onOpenChat}
-              aria-label={t('game.chat.openAria')}
-              data-testid="open-game-chat"
-              className="relative !h-8 gap-1 !px-2 xl:hidden"
-            >
-              <MessageCircle className="h-4 w-4" aria-hidden />
-              <span className="hidden sm:inline">
-                {t('game.chat.openButton')}
-              </span>
-              {chat.unreadCount > 0 ? (
-                <span
-                  className="absolute -right-1 -top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold leading-none text-white"
-                  aria-label={t('game.chat.unreadAria', {
-                    count: chat.unreadCount,
-                  })}
-                  data-testid="chat-unread-badge"
-                >
-                  {chat.unreadCount > 99 ? '99+' : chat.unreadCount}
-                </span>
-              ) : null}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setSettingsOpen(true)}
-              aria-label={t('game.settings.openAria')}
-              data-testid="open-game-settings"
-              className="!h-8 gap-1 !px-2"
-            >
-              <Settings2 className="h-4 w-4" aria-hidden />
-              <span className="hidden sm:inline">
-                {t('game.settings.openButton')}
-              </span>
-            </Button>
-          </div>
-        </header>
-
-        {error ? (
-          <Alert
-            variant="error"
-            className="sticky top-2 z-30 cursor-pointer text-sm font-semibold shadow-lg"
-            onClick={() => setError(null)}
-            data-testid="command-error"
-          >
-            {error}
-          </Alert>
-        ) : null}
-
-        {pauseInfo ? (
-          <PauseOverlay
-            pauseInfo={pauseInfo}
-            state={state}
-            myUserId={myUserId}
-            myVote={pauseVote.myVote}
-            isSubmitting={pauseVote.isSubmitting}
-            onVote={pauseVote.vote}
+      {/* Layout (top → bottom):
+          1. info-strip — bout/status pill + trump + deck/discard counters
+             + Rules / Reaction / Chat buttons.
+          2. players-row — every participant in clockwise order from the
+             viewer, scrolls horizontally on narrow screens if it overflows.
+          3. GameTable — flex-1 so it absorbs the remaining vertical room.
+          4. ActionBar + GameStatusBar + PlayerHand — unchanged.
+          On xl+ a fixed chat sidebar lives on the right. The game column
+          reserves room for it via right padding so nothing slides under. */}
+      {/* AppShell already opens the `<main>` to the full viewport width for
+          `/games/:id` (see AppShell `isGameRoute`), so we don't need any
+          negative-margin breakout here anymore. The chat sidebar is fixed to
+          the viewport's right edge; we reserve the same width via
+          `xl:pr-[22rem]` / `2xl:pr-[26rem]` so the game column never slides
+          under it. */}
+      <div className="flex w-full items-start gap-3 xl:pr-[22rem] 2xl:pr-[26rem]">
+        <div className="flex min-h-0 flex-1 flex-col gap-3" data-testid="game-room">
+          <InfoStrip
+            boutNumber={state.boutNumber}
+            defaultStatus={defaultStatus}
+            discardSize={state.discardSize}
+            cheatingOn={cheatingOn}
+            cheatAttemptsRemaining={mySeat?.cheatAttemptsRemaining ?? 0}
+            unreadChatCount={chat.unreadCount}
+            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenChat={onOpenChat}
           />
-        ) : null}
 
-        {/* Opponents row + corner meta */}
-        <div className="grid grid-cols-12 items-start gap-2">
-          <div className="col-span-2 flex flex-col items-center gap-2">
-            <TrumpIndicator
+          {/* Mobile deck-stack — sits between the info-strip and the players
+              row so the player can see the deck/trump at a glance on narrow
+              viewports. Desktop uses an absolutely-positioned variant inside
+              the felt-table arena below. */}
+          <div
+            className="flex w-full justify-center xl:hidden"
+            data-testid="deck-stack-mobile-wrap"
+          >
+            <DeckStack
+              deckSize={state.deckSize}
               trumpCard={state.trumpCard}
               trumpSuit={state.trumpSuit}
-              deckSize={state.deckSize}
+              variant="mobile"
             />
           </div>
-          <div className="col-span-8 flex flex-wrap items-start justify-center gap-2">
-            {seats.top.map((p) => (
-              <OpponentSeat
+
+          {error ? (
+            <Alert
+              variant="error"
+              className="sticky top-2 z-30 cursor-pointer text-sm font-semibold shadow-lg"
+              onClick={() => setError(null)}
+              data-testid="command-error"
+            >
+              {error}
+            </Alert>
+          ) : null}
+
+          {isSpectator ? (
+            <div
+              className="rounded-md border border-accent/40 bg-accent/10 px-3 py-2 text-center text-sm font-medium text-accent"
+              data-testid="spectator-banner"
+              role="status"
+            >
+              {t('game.spectator.banner')}
+            </div>
+          ) : null}
+
+          {pauseInfo ? (
+            <PauseOverlay
+              pauseInfo={pauseInfo}
+              state={state}
+              myUserId={myUserId}
+              myVote={pauseVote.myVote}
+              isSubmitting={pauseVote.isSubmitting}
+              onVote={pauseVote.vote}
+            />
+          ) : null}
+
+          {/* Players row — single horizontal strip, clockwise from viewer.
+              Hidden on xl+ where the radial-seat layout below takes over. */}
+          <div
+            className="flex w-full items-stretch gap-1.5 overflow-x-auto pb-1 md:gap-2 md:overflow-x-visible md:flex-wrap md:justify-center xl:hidden"
+            role="list"
+            aria-label={t('game.playersTitle')}
+            data-testid="players-row"
+          >
+            {playersInOrder.map((p) => (
+              <PlayerChip
                 key={p.id}
                 player={p}
                 isAttacker={p.id === state.currentAttackerId}
                 isDefender={p.id === state.currentDefenderId}
-                showCheatBadge={cheatingOn}
+                isMe={p.id === myUserId}
+                showCheatBadge={cheatingOn && p.id !== myUserId}
                 reaction={reactionsHook.reactions[p.id] ?? null}
               />
             ))}
           </div>
-          <div className="col-span-2 flex flex-col items-center gap-2">
-            <DiscardPile discardSize={state.discardSize} />
-          </div>
-        </div>
 
-        {/* Side seats (only for 5-6 players) */}
-        {(seats.left.length > 0 || seats.right.length > 0) && (
-          <div className="grid grid-cols-12 items-start gap-2">
-            <div className="col-span-2 flex flex-col gap-2">
-              {seats.left.map((p) => (
-                <OpponentSeat
-                  key={p.id}
-                  player={p}
-                  isAttacker={p.id === state.currentAttackerId}
-                  isDefender={p.id === state.currentDefenderId}
-                  compact
-                  showCheatBadge={cheatingOn}
-                  reaction={reactionsHook.reactions[p.id] ?? null}
+          {/* Felt-table arena. On xl we widen it (negative margin breaks out
+              of the parent's 5xl cap) and overlay the radial seats around the
+              border. On mobile this is just the bare table card; opponents
+              live in the players-row strip above.
+
+              `xl:pt-32` (instead of pt-20) reserves enough vertical room above
+              the felt that the top-centre opponent seat (positioned at 4–10%
+              of the arena height) stays clear of the InfoStrip sitting above
+              this block. Without the extra padding, a 120-tall PlayerChip
+              translated -50% Y could reach into the InfoStrip text. */}
+          <div className="relative w-full xl:px-16 xl:pt-32 xl:pb-6">
+            <GameTable
+              attacks={state.table.attacks}
+              centerActive={centerActive}
+              highlightedAttackIds={highlightedAttackIds}
+              droppableAttackIds={droppableAttackIds}
+              noticeableAttackIds={noticeableAttackIds}
+              noticeableBeatIds={noticeableBeatIds}
+              onNoticeCheat={onNoticeCheat}
+            />
+            <RadialOpponents
+              opponents={playersInOrder}
+              currentAttackerId={state.currentAttackerId}
+              currentDefenderId={state.currentDefenderId}
+              showCheatBadge={cheatingOn}
+              reactions={reactionsHook.reactions}
+            />
+            {/* Desktop-only deck-stack — pinned to the right edge of the
+                felt-table arena, vertically centred against the table. (The
+                dealer traditionally keeps the deck on the right.) The mobile
+                variant lives above this block (see the strip wrap). */}
+            <div className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 xl:block">
+              <div className="pointer-events-auto">
+                <DeckStack
+                  deckSize={state.deckSize}
+                  trumpCard={state.trumpCard}
+                  trumpSuit={state.trumpSuit}
+                  variant="desktop"
                 />
-              ))}
-            </div>
-            <div className="col-span-8" />
-            <div className="col-span-2 flex flex-col gap-2">
-              {seats.right.map((p) => (
-                <OpponentSeat
-                  key={p.id}
-                  player={p}
-                  isAttacker={p.id === state.currentAttackerId}
-                  isDefender={p.id === state.currentDefenderId}
-                  compact
-                  showCheatBadge={cheatingOn}
-                  reaction={reactionsHook.reactions[p.id] ?? null}
-                />
-              ))}
+              </div>
             </div>
           </div>
-        )}
 
-        <GameTable
-          attacks={state.table.attacks}
-          centerActive={centerActive}
-          highlightedAttackIds={highlightedAttackIds}
-          droppableAttackIds={droppableAttackIds}
-          noticeableAttackIds={noticeableAttackIds}
-          noticeableBeatIds={noticeableBeatIds}
-          onNoticeCheat={onNoticeCheat}
-        />
-
-        <ActionBar
-          showTake={showTake}
-          showPass={showPass}
-          passLabelKey={
-            status === 'bout_take_pending'
-              ? 'game.actions.passTake'
-              : 'game.actions.pass'
-          }
-          onTake={onTake}
-          onPass={onPass}
-          disabled={sending}
-        />
-
-        <GameStatusBar
-          unseenEvents={unseenEvents}
-          state={state}
-          onConsume={onAcknowledgeEvents}
-          defaultStatus={defaultStatus}
-          transientHint={transientHint}
-        />
-
-        {/* Reaction picker row sits above the player's own hand. The smile
-            button toggles a small popover with the EMOJI_REACTIONS whitelist;
-            tapping one fires `game:reaction` which broadcasts a floating
-            bubble to every client (including the sender, anchored above the
-            hand below). */}
-        <div className="relative flex items-center justify-end">
-          <ReactionBubble
-            key={myReaction?.timestamp ?? 'none'}
-            emoji={myReaction?.emoji ?? null}
-          />
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => setReactionPickerOpen((v) => !v)}
-            aria-label={t('game.reactions.send')}
-            aria-pressed={reactionPickerOpen}
-            data-testid="open-reaction-picker"
-            className="!h-9 gap-1 !px-2"
-          >
-            <Smile className="h-4 w-4" aria-hidden />
-            <span className="hidden sm:inline">
-              {t('game.reactions.send')}
-            </span>
-          </Button>
-          {reactionPickerOpen ? (
-            <div
-              className="absolute bottom-full right-0 z-30 mb-2 flex max-h-40 w-64 flex-wrap gap-0.5 overflow-y-auto rounded-xl border border-border bg-surface p-2 shadow-2xl"
-              role="toolbar"
-              aria-label={t('game.reactions.send')}
-              data-testid="reaction-picker"
-            >
-              {EMOJI_REACTIONS.map((emoji) => (
-                <button
-                  key={emoji}
-                  type="button"
-                  onClick={() => void onPickReaction(emoji)}
-                  className="shrink-0 rounded px-1.5 py-0.5 text-xl leading-none transition-colors hover:bg-border"
-                  aria-label={emoji}
-                  data-testid={`reaction-emoji-${emoji}`}
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
+          {!isSpectator ? (
+            <ActionBar
+              showTake={showTake}
+              showPass={showPass}
+              passLabelKey={
+                status === 'bout_take_pending'
+                  ? 'game.actions.passTake'
+                  : 'game.actions.pass'
+              }
+              onTake={onTake}
+              onPass={onPass}
+              disabled={sending}
+            />
           ) : null}
-        </div>
 
-        <PlayerHand
-          hand={myHand}
-          trumpSuit={state.trumpSuit}
-          draggingCardId={draggingCardId}
-        />
-
-        <DragOverlay dropAnimation={null}>
-          {dragOverlayCard ? (
-            <div
-              className="pointer-events-none relative"
-              data-testid="drag-overlay"
-            >
-              <PlayingCard
-                card={dragOverlayCard}
-                size="lg"
-                className="shadow-2xl"
-              />
-              {dragIntent !== 'none' ? (
-                <span
-                  className="pointer-events-none absolute -top-2 left-1/2 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-full bg-accent px-2 py-0.5 text-[10px] font-semibold text-white shadow"
-                  data-testid={`drag-intent-${dragIntent}`}
-                >
-                  {t(`game.actions.${dragIntent}`)}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
-        </DragOverlay>
-
-        {isGameOver ? (
-          <GameOverModal
+          <GameStatusBar
+            unseenEvents={unseenEvents}
             state={state}
-            open={!gameOverDismissed}
-            onClose={() => setGameOverDismissed(true)}
+            onConsume={onAcknowledgeEvents}
+            defaultStatus={defaultStatus}
+            transientHint={transientHint}
           />
-        ) : null}
 
-        <GameSettingsModal
-          open={settingsOpen}
-          onClose={() => setSettingsOpen(false)}
-          settings={state.settings}
-          playerCount={state.players.length}
-        />
+          {/* Player's own hand + a floating Reaction button on the right edge.
+              The reaction-bubble anchor sits above the hand (centred) so the
+              emoji floats over the cards rather than next to the nickname.
+              Spectators see neither (no hand, no reactions). */}
+          {!isSpectator ? (
+            <div className="relative flex w-full items-end gap-2">
+              <div className="relative flex-1">
+                <div className="pointer-events-none absolute inset-x-0 -top-2 flex justify-center">
+                  <ReactionBubble
+                    key={myReaction?.timestamp ?? 'none'}
+                    emoji={myReaction?.emoji ?? null}
+                  />
+                </div>
+                <PlayerHand
+                  hand={myHand}
+                  trumpSuit={state.trumpSuit}
+                  draggingCardId={draggingCardId}
+                />
+              </div>
 
-        {/* Mobile / tablet drawer. Hidden on xl+ where the sidebar takes over. */}
-        <div className="xl:hidden">
-          <GameChatPanel
-            gameId={gameId}
-            open={chatOpen}
-            onClose={() => setChatOpen(false)}
-            myUserId={myUserId}
-            variant="drawer"
+              {/* Floating circular reaction button next to the hand. */}
+              <div className="relative shrink-0 self-end pb-2">
+                <button
+                  type="button"
+                  onClick={() => setReactionPickerOpen((v) => !v)}
+                  aria-label={t('game.reactions.send')}
+                  aria-pressed={reactionPickerOpen}
+                  data-testid="open-reaction-picker"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border bg-surface text-text shadow-lg transition-transform hover:scale-105 hover:bg-surfaceAlt xl:h-12 xl:w-12"
+                >
+                  <Smile className="h-5 w-5" aria-hidden />
+                </button>
+                {reactionPickerOpen ? (
+                  <div
+                    className="absolute bottom-full right-0 z-30 mb-2 flex max-h-40 w-64 flex-wrap gap-0.5 overflow-y-auto rounded-xl border border-border bg-surface p-2 shadow-2xl"
+                    role="toolbar"
+                    aria-label={t('game.reactions.send')}
+                    data-testid="reaction-picker"
+                  >
+                    {EMOJI_REACTIONS.map((emoji) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        onClick={() => void onPickReaction(emoji)}
+                        className="shrink-0 rounded px-1.5 py-0.5 text-xl leading-none transition-colors hover:bg-border"
+                        aria-label={emoji}
+                        data-testid={`reaction-emoji-${emoji}`}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          <DragOverlay dropAnimation={null}>
+            {dragOverlayCard ? (
+              <div
+                className="pointer-events-none relative"
+                data-testid="drag-overlay"
+              >
+                <PlayingCard
+                  card={dragOverlayCard}
+                  size="lg"
+                  className="shadow-2xl"
+                />
+                {dragIntent !== 'none' ? (
+                  <span
+                    className="pointer-events-none absolute -top-2 left-1/2 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-full bg-accent px-2 py-0.5 text-[10px] font-semibold text-white shadow"
+                    data-testid={`drag-intent-${dragIntent}`}
+                  >
+                    {t(`game.actions.${dragIntent}`)}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+          </DragOverlay>
+
+          {isGameOver ? (
+            <GameOverModal
+              state={state}
+              open={!gameOverDismissed}
+              onClose={() => setGameOverDismissed(true)}
+            />
+          ) : null}
+
+          <GameSettingsModal
+            open={settingsOpen}
+            onClose={() => setSettingsOpen(false)}
+            settings={state.settings}
+            playerCount={state.players.length}
           />
-        </div>
 
-        <Modal
-          open={pendingCheatEntry !== null}
-          onClose={() => setPendingCheatEntry(null)}
-          dismissible={!sending}
-          title={t('game.cheat.confirmTitle')}
-          footer={
-            <>
-              <Button
-                variant="ghost"
-                onClick={() => setPendingCheatEntry(null)}
-                disabled={sending}
-              >
-                {t('common.cancel')}
-              </Button>
-              <Button
-                variant="danger"
-                onClick={confirmNoticeCheat}
-                disabled={sending}
-                data-testid="confirm-notice-cheat"
-              >
-                {t('game.cheat.confirmAction')}
-              </Button>
-            </>
-          }
-        >
-          <p className="text-sm">
-            {pendingCheatEntry?.isBeat
-              ? t('game.cheat.confirmBeatBody')
-              : t('game.cheat.confirmAttackBody')}
-          </p>
-        </Modal>
+          {/* Mobile / tablet drawer. Hidden on xl+ where the sidebar takes over. */}
+          <div className="xl:hidden">
+            <GameChatPanel
+              gameId={gameId}
+              open={chatOpen}
+              onClose={() => setChatOpen(false)}
+              myUserId={myUserId}
+              variant="drawer"
+              readOnly={isSpectator}
+            />
+          </div>
+
+          <Modal
+            open={pendingCheatEntry !== null}
+            onClose={() => setPendingCheatEntry(null)}
+            dismissible={!sending}
+            title={t('game.cheat.confirmTitle')}
+            footer={
+              <>
+                <Button
+                  variant="ghost"
+                  onClick={() => setPendingCheatEntry(null)}
+                  disabled={sending}
+                >
+                  {t('common.cancel')}
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={confirmNoticeCheat}
+                  disabled={sending}
+                  data-testid="confirm-notice-cheat"
+                >
+                  {t('game.cheat.confirmAction')}
+                </Button>
+              </>
+            }
+          >
+            <p className="text-sm">
+              {pendingCheatEntry?.isBeat
+                ? t('game.cheat.confirmBeatBody')
+                : t('game.cheat.confirmAttackBody')}
+            </p>
+          </Modal>
         </div>
-        {/* Desktop chat sidebar — permanent, ~22rem wide. Hidden on mobile. */}
+        {/* Desktop chat sidebar — fixed to the right edge of the viewport so
+            it never stretches with game content. The game container reserves
+            the same width via xl:pr-[22rem] above so nothing slides under.
+            Starts below the AppShell sticky header (~4rem). Hidden on mobile. */}
         <aside
-          className="hidden h-auto w-80 shrink-0 self-stretch xl:flex 2xl:w-96"
+          className="fixed right-0 top-16 hidden h-[calc(100vh-4rem)] w-80 z-10 xl:flex 2xl:w-96"
           data-testid="game-chat-sidebar"
         >
           <GameChatPanel
@@ -922,10 +934,127 @@ function GameRoom({
             onClose={() => undefined}
             myUserId={myUserId}
             variant="sidebar"
+            readOnly={isSpectator}
           />
         </aside>
       </div>
     </DndContext>
+  );
+}
+
+// ---------- info strip ----------
+
+interface InfoStripProps {
+  boutNumber: number;
+  defaultStatus: string;
+  discardSize: number;
+  cheatingOn: boolean;
+  cheatAttemptsRemaining: number;
+  unreadChatCount: number;
+  onOpenSettings: () => void;
+  onOpenChat: () => void;
+}
+
+/**
+ * Compact game-info strip pinned above the players row. Holds bout number,
+ * the current status pill, the discard counter, and the Chat / Rules buttons.
+ * The trump card + deck count live in `DeckStack` instead (rendered alongside
+ * the felt-table arena), so the strip no longer duplicates those visuals.
+ * Mobile-first: at ≤sm the buttons render icon-only. The strip is ~48px tall
+ * on mobile and ~56px on md+, with `flex-wrap` so nothing overlaps if a very
+ * long status string shows up on a tiny viewport.
+ */
+function InfoStrip({
+  boutNumber,
+  defaultStatus,
+  discardSize,
+  cheatingOn,
+  cheatAttemptsRemaining,
+  unreadChatCount,
+  onOpenSettings,
+  onOpenChat,
+}: InfoStripProps) {
+  const { t } = useTranslation();
+  return (
+    <header
+      className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border bg-surface px-2 py-1.5 text-xs md:gap-x-4 md:px-3 md:py-2"
+      data-testid="game-info-strip"
+    >
+      {/* Left cluster: bout + status pill + (optional) my cheat-attempts badge. */}
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <span className="shrink-0 text-textMuted">
+          {t('game.bout', { number: boutNumber })}
+        </span>
+        {cheatingOn ? (
+          <CheatAttemptsBadge
+            remaining={cheatAttemptsRemaining}
+            ariaLabel={t('game.cheat.attemptsRemaining', {
+              count: cheatAttemptsRemaining,
+            })}
+          />
+        ) : null}
+        <div
+          className="min-w-0 truncate rounded-md bg-surfaceAlt px-2 py-1 font-medium"
+          data-testid="game-status-pill"
+        >
+          {defaultStatus}
+        </div>
+      </div>
+
+      {/* Centre cluster: discard count only. Trump glyph + deck count moved
+          to `DeckStack` to avoid duplication. */}
+      <div
+        className="flex shrink-0 items-center gap-2 text-textMuted md:gap-3"
+        data-testid="game-info-meta"
+      >
+        <span
+          className="tabular-nums"
+          data-testid="discard-size"
+          aria-label={t('game.info.discardLabel', { count: discardSize })}
+        >
+          {t('game.info.discardLabel', { count: discardSize })}
+        </span>
+      </div>
+
+      {/* Right cluster: Chat / Rules buttons. Reaction moved next to the
+          player's own hand — see `GameRoom`'s reaction-button section below. */}
+      <div className="flex shrink-0 items-center gap-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onOpenChat}
+          aria-label={t('game.chat.openAria')}
+          data-testid="open-game-chat"
+          className="relative !h-8 gap-1 !px-2 xl:hidden"
+        >
+          <MessageCircle className="h-4 w-4" aria-hidden />
+          {unreadChatCount > 0 ? (
+            <span
+              className="absolute -right-1 -top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold leading-none text-white"
+              aria-label={t('game.chat.unreadAria', {
+                count: unreadChatCount,
+              })}
+              data-testid="chat-unread-badge"
+            >
+              {unreadChatCount > 99 ? '99+' : unreadChatCount}
+            </span>
+          ) : null}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onOpenSettings}
+          aria-label={t('game.settings.openAria')}
+          data-testid="open-game-settings"
+          className="!h-8 gap-1 !px-2"
+        >
+          <Settings2 className="h-4 w-4" aria-hidden />
+          <span className="hidden md:inline">
+            {t('game.settings.openButton')}
+          </span>
+        </Button>
+      </div>
+    </header>
   );
 }
 
@@ -969,39 +1098,6 @@ function playerCanPass(state: ClientGameState, myUserId: string): boolean {
     return state.currentAttackerId === myUserId;
   }
   return true;
-}
-
-interface SeatLayout {
-  top: ClientGamePlayer[];
-  left: ClientGamePlayer[];
-  right: ClientGamePlayer[];
-}
-
-/**
- * Mobile-first opponent layout. Opponents arrive already ordered clockwise
- * from the viewer (player to my left first, around to player on my right last).
- * Up to 4 opponents go across the top; 5+ opponents (only in a 6-player game)
- * split into top row + side columns. The leftmost slot is always the player
- * to the viewer's left so seating is consistent across all clients.
- */
-function arrangeOpponents(opponents: ClientGamePlayer[]): SeatLayout {
-  if (opponents.length <= 4) {
-    return { top: opponents, left: [], right: [] };
-  }
-  if (opponents.length === 5) {
-    // Left seat = next-clockwise neighbour, right seat = previous-clockwise.
-    return {
-      top: opponents.slice(1, 4),
-      left: [opponents[0]],
-      right: [opponents[4]],
-    };
-  }
-  // 6 opponents (7-player game — not in scope per spec, max is 6 total).
-  return {
-    top: opponents.slice(2, 4),
-    left: opponents.slice(0, 2),
-    right: opponents.slice(4, 6),
-  };
 }
 
 function formatCommandError(err: unknown, t: TFunction): string {

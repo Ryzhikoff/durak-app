@@ -109,6 +109,12 @@
     "recentGames": {
       "winner": "Победитель: {{nickname}}",
       "yourPlace": "Ваше место: {{place}}"
+    },
+    "activeGames": {
+      "title": "Идущие игры",
+      "empty": "Сейчас никто не играет",
+      "bout": "Раздача {{number}}",
+      "watch": "Смотреть"
     }
   },
   "profile": {
@@ -185,7 +191,13 @@
     "saved": "Сохранено",
     "changePasswordLink": "Сменить пароль",
     "notFound": "Профиль не найден",
-    "backToHome": "На главную"
+    "backToHome": "На главную",
+    "handSortMode": {
+      "title": "Сортировка карт в руке",
+      "power": "По силе (сильные слева)",
+      "suit": "По мастям (козыри + группы)",
+      "description": "Влияет только на твою руку"
+    }
   },
   "game": {
     "title": "Игра",
@@ -230,6 +242,29 @@
       "cardsCount_few": "{{count}} карты",
       "cardsCount_many": "{{count}} карт",
       "cardsCount_other": "{{count}} карт"
+    },
+    "players": {
+      "you": "Вы",
+      "handSizeShort_one": "{{count}} карта",
+      "handSizeShort_few": "{{count}} карты",
+      "handSizeShort_many": "{{count}} карт",
+      "handSizeShort_other": "{{count}} карт"
+    },
+    "info": {
+      "discardLabel": "Бито: {{count}}",
+      "trumpLabel": "Козырь",
+      "deckShort_one": "{{count}} карта",
+      "deckShort_few": "{{count}} карты",
+      "deckShort_many": "{{count}} карт",
+      "deckShort_other": "{{count}} карт"
+    },
+    "deck": {
+      "title": "Колода",
+      "empty": "Колода пуста",
+      "count_one": "{{count}} карта",
+      "count_few": "{{count}} карты",
+      "count_many": "{{count}} карт",
+      "count_other": "{{count}} карт"
     },
     "over": {
       "title": "Конец игры",
@@ -321,6 +356,10 @@
     },
     "reactions": {
       "send": "Реакция"
+    },
+    "spectator": {
+      "banner": "Вы наблюдаете за игрой",
+      "chatDisabled": "Зрители не могут писать в чат"
     },
     "chat": {
       "title": "Чат",

@@ -375,6 +375,73 @@ describe('GamesService.getClientState', () => {
   });
 });
 
+describe('GamesService.getSpectatorState', () => {
+  let redis: FakeRedis;
+  let svc: GamesService;
+  let gameId: string;
+
+  beforeEach(async () => {
+    redis = new FakeRedis();
+    svc = makeService(redis, makePrismaStub({ ua: USER_A, ub: USER_B }));
+    ({ gameId } = await svc.createFromLobby(makeLobby()));
+  });
+
+  it('returns a snapshot with no hand revealed for any player', async () => {
+    const snap = await svc.getSpectatorState(gameId);
+    expect(snap).not.toBeNull();
+    expect(snap?.isSpectator).toBe(true);
+    expect(snap?.players.every((p) => p.hand === undefined)).toBe(true);
+    // Public bits still exposed.
+    expect(snap?.deckSize).toBeGreaterThan(0);
+    expect(snap?.trumpSuit).toBeTruthy();
+  });
+
+  it('returns null for unknown gameId', async () => {
+    const snap = await svc.getSpectatorState('no-such');
+    expect(snap).toBeNull();
+  });
+});
+
+describe('GamesService.listActive', () => {
+  let redis: FakeRedis;
+  let svc: GamesService;
+
+  beforeEach(() => {
+    redis = new FakeRedis();
+    svc = makeService(redis, makePrismaStub({ ua: USER_A, ub: USER_B }));
+  });
+
+  it('returns an empty list when there are no games', async () => {
+    const items = await svc.listActive();
+    expect(items).toEqual([]);
+  });
+
+  it('lists active (non-finished) games', async () => {
+    const { gameId } = await svc.createFromLobby(makeLobby());
+    const items = await svc.listActive();
+    expect(items).toHaveLength(1);
+    expect(items[0].gameId).toBe(gameId);
+    expect(items[0].players).toHaveLength(2);
+    expect(items[0].players[0].nickname).toBe('Alice');
+    expect(items[0].players[1].nickname).toBe('Bob');
+    // No card data — only player + hand sizes + meta.
+    for (const p of items[0].players) {
+      expect(typeof p.handSize).toBe('number');
+    }
+    expect(items[0].trumpSuit).toBeTruthy();
+    expect(items[0].deckSize).toBeGreaterThan(0);
+  });
+
+  it('skips a game that has reached game_over but is still in the index', async () => {
+    const { gameId, state } = await svc.createFromLobby(makeLobby());
+    // Synthesise game_over by patching the persisted state directly.
+    const finished: GameState = { ...state, status: 'game_over', loserPlayerId: 'ub' };
+    await redis.set(`${GAME_KEY_PREFIX}${gameId}`, JSON.stringify(finished));
+    const items = await svc.listActive();
+    expect(items).toEqual([]);
+  });
+});
+
 describe('GamesService.applyGameCommand (authorisation)', () => {
   let redis: FakeRedis;
   let svc: GamesService;

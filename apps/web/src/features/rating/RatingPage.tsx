@@ -6,9 +6,14 @@ import { GAME_EVENTS } from '@durak/shared-types';
 import { Alert, Button, Card, Spinner } from '@/components/ui';
 import { Avatar } from '@/components/Avatar';
 import { useRating, RATING_QUERY_KEY } from './hooks';
-import { useGames, GAMES_QUERY_KEY } from '@/features/games/hooks';
+import {
+  ACTIVE_GAMES_QUERY_KEY,
+  GAMES_QUERY_KEY,
+  useGames,
+} from '@/features/games/hooks';
 import { ME_QUERY_KEY } from '@/features/auth/hooks';
 import { gamesSocket, useGameSocket } from '@/features/games/socket';
+import { ActiveGamesSection } from '@/features/games/ActiveGamesSection';
 import { LobbyListSection } from '@/features/lobbies/LobbyListSection';
 import { HighlightsSection } from '@/features/highlights/HighlightsSection';
 import { HIGHLIGHTS_QUERY_KEY } from '@/features/highlights/hooks';
@@ -46,6 +51,10 @@ export function RatingPage() {
     const onOverPublic = () => {
       void qc.invalidateQueries({ queryKey: [RATING_QUERY_KEY] });
       void qc.invalidateQueries({ queryKey: [GAMES_QUERY_KEY] });
+      // Drop the finished game from the home-page "active games" list right
+      // away (the polling interval would catch it eventually, but the event is
+      // free so do it now).
+      void qc.invalidateQueries({ queryKey: [ACTIVE_GAMES_QUERY_KEY] });
       void qc.invalidateQueries({ queryKey: [PROFILE_QUERY_KEY] });
       void qc.invalidateQueries({ queryKey: [HIGHLIGHTS_QUERY_KEY] });
       // The current user's own game may have just finished — refresh /auth/me
@@ -79,6 +88,8 @@ export function RatingPage() {
       </header>
 
       <LobbyListSection />
+
+      <ActiveGamesSection />
 
       <HighlightsSection />
 

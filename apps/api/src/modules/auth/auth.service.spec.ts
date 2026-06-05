@@ -16,6 +16,7 @@ interface FakeUser {
   cardBackId: string;
   randomCardBack: boolean;
   customCardBackUrl: string | null;
+  handSortMode: string;
   disabledAt: Date | null;
 }
 
@@ -30,6 +31,7 @@ const baseUser: FakeUser = {
   cardBackId: 'classic-1',
   randomCardBack: false,
   customCardBackUrl: null,
+  handSortMode: 'power',
   disabledAt: null,
 };
 

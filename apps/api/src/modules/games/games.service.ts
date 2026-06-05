@@ -31,10 +31,12 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { RedisService } from '../../infrastructure/redis/redis.service';
 import {
   redactForPlayer,
+  SPECTATOR_VIEWER_ID,
   type ClientGameState,
   type GameUserProfile,
   type GameUserProfiles,
 } from './game-redactor';
+import type { ActiveGamePlayer, ActiveGameSummary } from '@durak/shared-types';
 import { GamesPauseService } from './games-pause.service';
 import {
   collectMetrics,
@@ -483,6 +485,71 @@ export class GamesService {
   }
 
   /**
+   * Build a spectator (no-hand) snapshot. Returns null when the game is
+   * missing or already over — callers should fall through to history. Unlike
+   * {@link getClientState} the membership check is intentionally absent: any
+   * logged-in user may watch an active game.
+   */
+  async getSpectatorState(gameId: string): Promise<ClientGameState | null> {
+    const state = await this.tryGet(gameId);
+    if (!state) return null;
+    if (state.status === 'game_over') return null;
+    const profiles = await this.getProfiles(gameId);
+    return redactForPlayer(state, SPECTATOR_VIEWER_ID, profiles);
+  }
+
+  /**
+   * List every active (non-game_over) game currently held in Redis. Powers
+   * the home-page "watch a live game" list. We walk the active-games ZSET
+   * (`games:index`), score-DESC, so newest games surface first. Each entry
+   * is hydrated lazily — a stale id in the index (state already finalised
+   * but ZSET not yet cleaned) is silently skipped.
+   */
+  async listActive(limit = 50): Promise<ActiveGameSummary[]> {
+    const ids = await this.redis.client.zrevrange(GAME_INDEX_KEY, 0, Math.max(0, limit - 1));
+    if (ids.length === 0) return [];
+    const out: ActiveGameSummary[] = [];
+    for (const id of ids) {
+      const state = await this.tryGet(id);
+      if (!state) continue;
+      if (state.status === 'game_over') continue;
+      const profiles = await this.getProfiles(id);
+      const startedAtRaw = await this.redis.client
+        .get(`${GAME_KEY_PREFIX}${id}${GAME_STARTED_AT_SUFFIX}`)
+        .catch(() => null);
+      const startedAt = startedAtRaw
+        ? new Date(Number.parseInt(startedAtRaw, 10)).toISOString()
+        : '';
+      const attacker = state.players[state.currentAttackerIndex];
+      const defender = state.players[state.currentDefenderIndex];
+      const finishedSet = new Set(state.finishedPlayers);
+      const players: ActiveGamePlayer[] = state.players.map((p) => {
+        const profile = profiles[p.id];
+        return {
+          userId: p.id,
+          nickname: profile?.nickname ?? p.nickname,
+          avatarUrl: profile?.avatarUrl ?? null,
+          handSize: p.hand.length,
+          isAttacker: attacker?.id === p.id,
+          isDefender: defender?.id === p.id,
+          isFinished: finishedSet.has(p.id),
+        };
+      });
+      out.push({
+        gameId: id,
+        startedAt,
+        // game_over filtered above — narrow the union for the public type.
+        status: state.status as Exclude<typeof state.status, 'game_over'>,
+        players,
+        trumpSuit: state.trumpSuit,
+        deckSize: state.deck.length,
+        boutNumber: state.boutNumber,
+      });
+    }
+    return out;
+  }
+
+  /**
    * Apply a player's command. Validates membership BEFORE the engine sees the
    * command (so a malicious user can't probe other games' state via error
    * codes). On success, persists the new state, indexes the events, and
@@ -840,6 +907,23 @@ export class GamesService {
     if (!state || !state.players.some((p) => p.id === userId)) {
       return [];
     }
+    return this.readChatHistory(gameId);
+  }
+
+  /**
+   * Spectator-flavoured history fetch. Same payload as
+   * {@link fetchChatHistory} but without the membership check: any logged-in
+   * user may read the chat of an active game. Returns an empty array when the
+   * game does not exist.
+   */
+  async fetchSpectatorChatHistory(gameId: string): Promise<ChatMessage[]> {
+    const state = await this.tryGet(gameId);
+    if (!state) return [];
+    return this.readChatHistory(gameId);
+  }
+
+  /** Shared chat-history reader used by both participant and spectator paths. */
+  private async readChatHistory(gameId: string): Promise<ChatMessage[]> {
     const raw = await this.redis.client.lrange(chatKey(gameId), 0, -1);
     const reactionsRaw = await this.redis.client.hgetall(chatReactionsKey(gameId));
     const reactionsByMessage = groupReactions(reactionsRaw);

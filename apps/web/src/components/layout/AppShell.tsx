@@ -23,6 +23,11 @@ export function AppShell() {
   const logout = useLogout();
   const navigate = useNavigate();
   const location = useLocation();
+  // The game page needs to break out of the global 5xl reading column so the
+  // felt-table arena + radial seats + fixed chat sidebar can spread across the
+  // viewport. We swap the `<main>` width class only for `/games/:id` (and
+  // sub-routes) — every other page keeps the centred narrow column.
+  const isGameRoute = /^\/games\/[^/]+/.test(location.pathname);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -223,7 +228,16 @@ export function AppShell() {
         ) : null}
       </header>
 
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-5">
+      <main
+        className={clsx(
+          'flex-1 px-4 py-5',
+          // Game route (`/games/:id`) needs the full viewport width so the
+          // felt-table arena can spread out and leave room for the radial
+          // seats + the fixed chat sidebar on xl+. Every other page keeps
+          // the comfortable 5xl reading column.
+          isGameRoute ? 'w-full' : 'mx-auto w-full max-w-5xl',
+        )}
+      >
         <Outlet />
       </main>
     </div>

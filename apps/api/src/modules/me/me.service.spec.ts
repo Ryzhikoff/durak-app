@@ -15,6 +15,7 @@ interface FakeUser {
   cardBackId: string;
   randomCardBack: boolean;
   customCardBackUrl: string | null;
+  handSortMode: string;
 }
 
 const baseUser: FakeUser = {
@@ -27,6 +28,7 @@ const baseUser: FakeUser = {
   cardBackId: 'classic-1',
   randomCardBack: false,
   customCardBackUrl: null,
+  handSortMode: 'power',
 };
 
 function makePrismaStub(user: FakeUser) {
@@ -45,7 +47,11 @@ function makePrismaStub(user: FakeUser) {
 
 function makeAuthStub(): AuthService {
   return {
-    toPublicUser: (u: FakeUser) => ({ ...u, currentGameId: null }),
+    toPublicUser: (u: FakeUser) => ({
+      ...u,
+      handSortMode: u.handSortMode === 'suit' ? 'suit' : 'power',
+      currentGameId: null,
+    }),
     resolveCurrentGameId: async () => null,
   } as unknown as AuthService;
 }
@@ -151,6 +157,48 @@ describe('MeService.run', () => {
       where: { id: 'u1' },
       data: { cardBackId: '__custom__' },
     });
+  });
+
+  it('persists a valid handSortMode (suit)', async () => {
+    const prisma = makePrismaStub(baseUser);
+    const auth = makeAuthStub();
+    const res = await MeService.run(prisma as unknown as IMePrismaClient, cardBacks, auth, 'u1', {
+      handSortMode: 'suit',
+    });
+    expect(res.user.handSortMode).toBe('suit');
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'u1' },
+      data: { handSortMode: 'suit' },
+    });
+  });
+
+  it('persists a valid handSortMode (power)', async () => {
+    const prisma = makePrismaStub({ ...baseUser, handSortMode: 'suit' });
+    const auth = makeAuthStub();
+    const res = await MeService.run(prisma as unknown as IMePrismaClient, cardBacks, auth, 'u1', {
+      handSortMode: 'power',
+    });
+    expect(res.user.handSortMode).toBe('power');
+  });
+
+  it('rejects an invalid handSortMode with 400 HAND_SORT_MODE_INVALID', async () => {
+    const prisma = makePrismaStub(baseUser);
+    const auth = makeAuthStub();
+    await expect(
+      MeService.run(prisma as unknown as IMePrismaClient, cardBacks, auth, 'u1', {
+        // Bypass DTO typing on purpose — this branch guards direct service callers.
+        handSortMode: 'random' as unknown as 'power',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    try {
+      await MeService.run(prisma as unknown as IMePrismaClient, cardBacks, auth, 'u1', {
+        handSortMode: 'random' as unknown as 'power',
+      });
+    } catch (err) {
+      const e = err as BadRequestException;
+      expect((e.getResponse() as { code: string }).code).toBe('HAND_SORT_MODE_INVALID');
+    }
+    expect(prisma.user.update).not.toHaveBeenCalled();
   });
 
   it('maps P2002 on nickname to 409 NICKNAME_TAKEN', async () => {

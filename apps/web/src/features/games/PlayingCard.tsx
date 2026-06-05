@@ -6,8 +6,12 @@ export type CardSize = 'xs' | 'sm' | 'md' | 'lg';
 const SIZE_CLASS: Record<CardSize, string> = {
   xs: 'w-8 h-12 text-[10px]',
   sm: 'w-10 h-14 text-xs',
-  md: 'w-14 h-20 text-sm',
-  lg: 'w-20 h-28 text-base',
+  // md cards bump up noticeably from xl so the desktop felt can breathe and
+  // table entries read at a glance. Tracks the player-hand sizing below.
+  md: 'w-14 h-20 text-sm xl:w-20 xl:h-28 xl:text-base',
+  // lg used by the drag overlay — keep it a touch bigger than xl-md so the
+  // floating preview pops above the source card visually.
+  lg: 'w-20 h-28 text-base xl:w-24 xl:h-36 xl:text-lg',
 };
 
 const RANK_LABEL: Record<number, string> = {
@@ -66,7 +70,8 @@ export function PlayingCard({
   ariaLabel,
 }: PlayingCardProps) {
   const base = clsx(
-    'relative rounded-lg border bg-white shadow-sm select-none flex flex-col justify-between p-1 leading-none',
+    'relative rounded-lg border bg-white select-none flex flex-col justify-between p-1 leading-none transition-shadow',
+    'shadow-md',
     SIZE_CLASS[size],
     selected
       ? 'border-accent ring-2 ring-accent -translate-y-1'

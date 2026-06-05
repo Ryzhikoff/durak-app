@@ -1,5 +1,6 @@
 import { Controller, Get, NotFoundException, Param, Query, UseGuards } from '@nestjs/common';
 import type {
+  ActiveGamesResponse,
   GameDetail,
   GameListResponse,
   PauseInfo,
@@ -35,6 +36,18 @@ export class GamesController {
       limit: q.limit ?? 20,
       playerId: q.playerId,
     });
+  }
+
+  /**
+   * List currently-active (non-finished) games. Powers the home-page
+   * spectator entrypoint. Auth-required so we don't broadcast live boards to
+   * the open web — but no membership check, any logged-in user may watch.
+   */
+  @Get('active')
+  @UseGuards(AuthGuard)
+  async active(): Promise<ActiveGamesResponse> {
+    const items = await this.games.listActive();
+    return { items };
   }
 
   /**
@@ -79,8 +92,18 @@ export class GamesController {
           ]);
           return { state, pauseInfo };
         }
-        // Non-participant on an active game: fall through to Postgres in case
-        // we somehow have a finished record too (shouldn't, but cheap).
+        // Non-participant on an active game: serve a spectator snapshot. No
+        // hand is revealed for any player; pauseInfo is still attached so the
+        // overlay renders if the game is currently paused.
+        const [spectatorState, pauseInfo] = await Promise.all([
+          this.games.getSpectatorState(id),
+          this.pause.get(id).catch(() => null),
+        ]);
+        if (spectatorState) {
+          return { state: spectatorState, pauseInfo };
+        }
+        // Fell through (raced into game_over between the two reads) — let the
+        // history lookup below decide.
       }
     }
     const detail = await this.history.getDetail(id);

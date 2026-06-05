@@ -819,6 +819,107 @@ describe('take', () => {
       expect(r2.events.some((e) => e.type === 'DefenderTookCalled')).toBe(true);
       expect(r2.events.some((e) => e.type === 'BoutEnded' && e.outcome === 'taken')).toBe(true);
     });
+
+    it('thrower with an empty hand is auto-counted as passed', () => {
+      // Regression: a "пусть берёт" vote shouldn't wait on a player who
+      // physically can't add another card. Setup (cheating-OFF so the take
+      // stays parked through the throw-in instead of reverting to bout_defense):
+      //   - A attacks 6♥, B (defender) takes — bout parked in bout_take_pending.
+      //   - C throws his last card (6♣) — C is now hand-empty.
+      //   - D passes — only D is eligible (A also hand-empty, C hand-empty).
+      //     The bout therefore closes via closeBoutTaken.
+      const state = craftGame({
+        players: [
+          // A holds only the opening 6♥; after attacking, A's hand is empty.
+          // A is NOT in finishedPlayers yet — the bout is still open — but the
+          // empty-hand filter must already exclude A from the eligible set.
+          { id: 'A', hand: [card('hearts', 6)] },
+          // B's hand keeps the per-bout cap open so C's throw-in lands.
+          // initialDefenderHandSize = 4 → cap headroom = 4.
+          {
+            id: 'B',
+            hand: [card('hearts', 10), card('clubs', 10), card('diamonds', 10), card('spades', 10)],
+          },
+          // C holds exactly the throw-in card; once played his hand is empty.
+          { id: 'C', hand: [card('clubs', 6)] },
+          // D is the only thrower with cards left after C empties out.
+          { id: 'D', hand: [card('hearts', 8), card('diamonds', 4)] },
+        ],
+        attackerId: 'A',
+        defenderId: 'B',
+        trumpSuit: 'spades',
+        // Cheating-off: throw-ins during bout_take_pending keep the parked
+        // status (no revert to bout_defense), so we can observe the eligible-
+        // filter behaviour cleanly on the pass.
+        settings: { cheatingEnabled: false, attackerScope: 'all' },
+      });
+      const r1 = applyCommand(state, { type: 'attack', playerId: 'A', cardId: 'hearts-6' });
+      if (!r1.ok) throw new Error();
+      expect(r1.state.players.find((p) => p.id === 'A')!.hand).toHaveLength(0);
+      const r2 = applyCommand(r1.state, { type: 'take', playerId: 'B' });
+      if (!r2.ok) throw new Error();
+      expect(r2.state.status).toBe('bout_take_pending');
+      // C throws his last card. Status stays bout_take_pending (cheating-off);
+      // C's hand is now empty but C isn't finished yet (bout still open).
+      const r3 = applyCommand(r2.state, { type: 'attack', playerId: 'C', cardId: 'clubs-6' });
+      if (!r3.ok) throw new Error();
+      expect(r3.state.status).toBe('bout_take_pending');
+      expect(r3.state.players.find((p) => p.id === 'C')!.hand).toHaveLength(0);
+      expect(r3.state.finishedPlayers).not.toContain('C');
+      // D passes. A and C both have empty hands → eligible set is just {D}.
+      // Bout closes.
+      const r4 = applyCommand(r3.state, { type: 'pass', playerId: 'D' });
+      expect(r4.ok).toBe(true);
+      if (!r4.ok) return;
+      expect(r4.state.status).not.toBe('bout_take_pending');
+      expect(r4.state.table.attacks).toHaveLength(0);
+      expect(r4.events.some((e) => e.type === 'BoutEnded' && e.outcome === 'taken')).toBe(true);
+    });
+
+    it('empty-handed thrower is still excluded from eligible set while other throwers remain', () => {
+      // Companion to the test above: when C (hand-empty) drops out of the
+      // eligible set but D AND A still have cards, the bout must NOT close
+      // on the first pass — we still need both A and D to acknowledge.
+      const state = craftGame({
+        players: [
+          // A retains a card so they remain in the eligible set after their
+          // attack. Use the same rank for the second card so it can match the
+          // table on a later throw-in.
+          { id: 'A', hand: [card('hearts', 6), card('diamonds', 6)] },
+          {
+            id: 'B',
+            hand: [card('hearts', 10), card('clubs', 10), card('diamonds', 10), card('spades', 10)],
+          },
+          { id: 'C', hand: [card('clubs', 6)] },
+          { id: 'D', hand: [card('hearts', 8), card('diamonds', 4)] },
+        ],
+        attackerId: 'A',
+        defenderId: 'B',
+        trumpSuit: 'spades',
+        settings: { cheatingEnabled: false, attackerScope: 'all' },
+      });
+      const r1 = applyCommand(state, { type: 'attack', playerId: 'A', cardId: 'hearts-6' });
+      if (!r1.ok) throw new Error();
+      const r2 = applyCommand(r1.state, { type: 'take', playerId: 'B' });
+      if (!r2.ok) throw new Error();
+      // C throws his last card; bout stays parked, C is hand-empty.
+      const r3 = applyCommand(r2.state, { type: 'attack', playerId: 'C', cardId: 'clubs-6' });
+      if (!r3.ok) throw new Error();
+      expect(r3.state.status).toBe('bout_take_pending');
+      expect(r3.state.players.find((p) => p.id === 'C')!.hand).toHaveLength(0);
+      // D passes — bout should still be parked because A still holds a card.
+      const r4 = applyCommand(r3.state, { type: 'pass', playerId: 'D' });
+      if (!r4.ok) throw new Error();
+      expect(r4.state.status).toBe('bout_take_pending');
+      expect(r4.state.passedPlayerIds).toEqual(['D']);
+      // A passes — now A and D are both done, C is excluded by the empty-hand
+      // filter, so the bout finally closes.
+      const r5 = applyCommand(r4.state, { type: 'pass', playerId: 'A' });
+      expect(r5.ok).toBe(true);
+      if (!r5.ok) return;
+      expect(r5.state.status).not.toBe('bout_take_pending');
+      expect(r5.events.some((e) => e.type === 'BoutEnded' && e.outcome === 'taken')).toBe(true);
+    });
   });
 });
 

@@ -26,6 +26,7 @@ const baseUser: User = {
   cardBackId: 'classic-1',
   randomCardBack: false,
   customCardBackUrl: null,
+  handSortMode: 'power',
   currentGameId: null,
 };
 

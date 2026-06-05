@@ -22,6 +22,7 @@ import { useCardBacks } from '@/features/cardbacks/hooks';
 import type {
   CardBackDef,
   GameSummary,
+  HandSortMode,
   ProfileStats,
   PublicProfile,
 } from '@durak/shared-types';
@@ -406,6 +407,11 @@ function OwnSettings({ profile }: { profile: PublicProfile }) {
   const uploadCardBack = useUploadCardBack();
   const deleteCardBack = useDeleteCardBack();
   const cardBacks = useCardBacks();
+  // `handSortMode` lives on the user record (not on PublicProfile, which is the
+  // public-facing view). Pull it from the auth store so we can reflect the
+  // current selection in the radio buttons.
+  const me = useAuthStore((s) => s.user);
+  const currentHandSortMode: HandSortMode = me?.handSortMode ?? 'power';
 
   const [nickname, setNickname] = useState(profile.nickname);
   const [nickError, setNickError] = useState<string | null>(null);
@@ -414,6 +420,7 @@ function OwnSettings({ profile }: { profile: PublicProfile }) {
   const [cardBackError, setCardBackError] = useState<string | null>(null);
   const [customClientError, setCustomClientError] = useState<string | null>(null);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [handSortError, setHandSortError] = useState<string | null>(null);
 
   useEffect(() => {
     setNickname(profile.nickname);
@@ -509,6 +516,16 @@ function OwnSettings({ profile }: { profile: PublicProfile }) {
   const cardBackBusy =
     updateMe.isPending || uploadCardBack.isPending || deleteCardBack.isPending;
 
+  const onSelectHandSortMode = async (mode: HandSortMode) => {
+    if (mode === currentHandSortMode) return;
+    setHandSortError(null);
+    try {
+      await updateMe.mutateAsync({ handSortMode: mode });
+    } catch (err) {
+      setHandSortError(translateApiError(err, t));
+    }
+  };
+
   return (
     <section aria-labelledby="profile-settings" className="flex flex-col gap-4">
       <h2 id="profile-settings" className="text-lg font-semibold">
@@ -602,6 +619,30 @@ function OwnSettings({ profile }: { profile: PublicProfile }) {
         )}
       </Card>
 
+      <Card>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="text-sm font-medium text-textMuted">
+            {t('profile.handSortMode.title')}
+          </div>
+          {updateMe.isPending ? (
+            <span className="text-xs text-textMuted">{t('profile.cardBackSaving')}</span>
+          ) : null}
+        </div>
+        {handSortError ? (
+          <Alert variant="error" className="mb-3">
+            {handSortError}
+          </Alert>
+        ) : null}
+        <HandSortModePicker
+          value={currentHandSortMode}
+          disabled={updateMe.isPending}
+          onSelect={(m) => void onSelectHandSortMode(m)}
+        />
+        <p className="mt-2 text-xs text-textMuted">
+          {t('profile.handSortMode.description')}
+        </p>
+      </Card>
+
       <Modal
         open={confirmDeleteOpen}
         onClose={() => {
@@ -633,6 +674,52 @@ function OwnSettings({ profile }: { profile: PublicProfile }) {
         </p>
       </Modal>
     </section>
+  );
+}
+
+interface HandSortModePickerProps {
+  value: HandSortMode;
+  disabled: boolean;
+  onSelect: (mode: HandSortMode) => void;
+}
+
+function HandSortModePicker({ value, disabled, onSelect }: HandSortModePickerProps) {
+  const { t } = useTranslation();
+  const options: Array<{ id: HandSortMode; label: string }> = [
+    { id: 'power', label: t('profile.handSortMode.power') },
+    { id: 'suit', label: t('profile.handSortMode.suit') },
+  ];
+  return (
+    <div
+      role="radiogroup"
+      aria-label={t('profile.handSortMode.title')}
+      className="flex flex-col gap-2"
+    >
+      {options.map((opt) => {
+        const selected = opt.id === value;
+        return (
+          <label
+            key={opt.id}
+            className={clsx(
+              'flex cursor-pointer items-center gap-3 rounded-xl border border-border bg-surfaceAlt/40 p-3 transition-colors',
+              selected ? 'border-accent bg-accent/10' : 'hover:bg-surfaceAlt',
+              disabled ? 'cursor-not-allowed opacity-70' : '',
+            )}
+          >
+            <input
+              type="radio"
+              className="h-4 w-4 accent-accent"
+              name="hand-sort-mode"
+              value={opt.id}
+              checked={selected}
+              disabled={disabled}
+              onChange={() => onSelect(opt.id)}
+            />
+            <span className="text-sm font-medium">{opt.label}</span>
+          </label>
+        );
+      })}
+    </div>
   );
 }
 

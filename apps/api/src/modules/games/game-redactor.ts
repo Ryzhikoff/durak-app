@@ -46,7 +46,20 @@ export interface ClientGameState {
   currentDefenderId: PlayerId;
   passedPlayerIds: PlayerId[];
   players: ClientGamePlayer[];
+  /**
+   * True when the snapshot is built for a spectator (a logged-in user who is
+   * not seated in the game). Spectators see the public board (table, deck size,
+   * trump, hand sizes, finished/passed flags) but never any actual cards from
+   * any hand. Undefined / false for the seated-player snapshot.
+   */
+  isSpectator?: boolean;
 }
+
+/**
+ * Sentinel `viewerUserId` value passed to {@link redactForPlayer} to request
+ * a spectator snapshot — no hand is revealed for any player.
+ */
+export const SPECTATOR_VIEWER_ID = '__spectator__' as const;
 
 export interface ClientGamePlayer {
   id: PlayerId;
@@ -77,8 +90,14 @@ const EMPTY_PROFILE: GameUserProfile = {
  * Build a per-viewer snapshot from the canonical {@link GameState}. Pure
  * function — safe to call repeatedly per-socket on every change.
  *
- * The viewer is identified by `viewerUserId`; if the viewer isn't actually
- * seated in the game, no hand is revealed (only the public projection).
+ * The viewer is identified by `viewerUserId`. Two behaviours:
+ *  - Seated player (own id is in `state.players`): their hand is included,
+ *    every opponent's hand stays hidden.
+ *  - Spectator / unseated viewer (id absent, or {@link SPECTATOR_VIEWER_ID}):
+ *    no hand is revealed for any player and the returned snapshot is flagged
+ *    with `isSpectator = true` so the client can render the read-only UI.
+ *    The `myUserId` field carries the literal sentinel — clients should look
+ *    at `isSpectator` rather than try to match `myUserId` against `players`.
  */
 export function redactForPlayer(
   state: GameState,
@@ -89,6 +108,12 @@ export function redactForPlayer(
   const defender = state.players[state.currentDefenderIndex];
   const finishedSet = new Set(state.finishedPlayers);
   const passedSet = new Set(state.passedPlayerIds);
+  const seatedIds = new Set(state.players.map((p) => p.id));
+  // A viewer who isn't seated is treated as a spectator regardless of which
+  // id they supplied — the existing behaviour (no hand revealed) is preserved,
+  // and the explicit `isSpectator` flag lets the client switch off
+  // hand-rendering / command UIs.
+  const isSpectator = viewerUserId === SPECTATOR_VIEWER_ID || !seatedIds.has(viewerUserId);
 
   const players: ClientGamePlayer[] = state.players.map((p) => {
     const profile = profiles[p.id] ?? { ...EMPTY_PROFILE, nickname: p.nickname };
@@ -104,7 +129,8 @@ export function redactForPlayer(
       isPassed: passedSet.has(p.id),
       cheatAttemptsRemaining: state.cheatAttemptsRemaining[p.id] ?? 0,
     };
-    if (p.id === viewerUserId) {
+    // Only seated viewers get their own hand. Spectators never see any hand.
+    if (!isSpectator && p.id === viewerUserId) {
       // Defensive copy so consumers cannot mutate engine state via the snapshot.
       out.hand = p.hand.slice();
     }
@@ -114,7 +140,7 @@ export function redactForPlayer(
     return out;
   });
 
-  return {
+  const snapshot: ClientGameState = {
     id: state.id,
     settings: state.settings,
     myUserId: viewerUserId,
@@ -131,4 +157,6 @@ export function redactForPlayer(
     passedPlayerIds: state.passedPlayerIds.slice(),
     players,
   };
+  if (isSpectator) snapshot.isSpectator = true;
+  return snapshot;
 }

@@ -9,6 +9,9 @@ import { RedisService } from '../../infrastructure/redis/redis.service';
 import { PasswordHasher } from './password-hasher';
 import { SessionService } from './session.service';
 
+/** Whitelist of allowed `handSortMode` values; mirrored on the wire. */
+export type HandSortMode = 'power' | 'suit';
+
 export interface PublicUser {
   id: string;
   login: string;
@@ -19,6 +22,12 @@ export interface PublicUser {
   cardBackId: string;
   randomCardBack: boolean;
   customCardBackUrl: string | null;
+  /**
+   * User-chosen hand sort strategy. Mirrors `User.handSortMode` in the
+   * database. Server never re-sorts hands itself — the client picks a sort
+   * function based on this flag.
+   */
+  handSortMode: HandSortMode;
   /**
    * Set to the gameId of the user's currently active (non-finished) game, if
    * any. Read from Redis `userInGame:<userId>` and cross-checked against the
@@ -62,6 +71,7 @@ export class AuthService {
       cardBackId: string;
       randomCardBack: boolean;
       customCardBackUrl: string | null;
+      handSortMode: string;
     },
     currentGameId: string | null = null,
   ): PublicUser {
@@ -75,6 +85,8 @@ export class AuthService {
       cardBackId: u.cardBackId,
       randomCardBack: u.randomCardBack,
       customCardBackUrl: u.customCardBackUrl,
+      // Defensive: any non-'suit' value falls back to the legacy 'power' mode.
+      handSortMode: u.handSortMode === 'suit' ? 'suit' : 'power',
       currentGameId,
     };
   }

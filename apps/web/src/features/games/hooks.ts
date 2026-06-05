@@ -11,7 +11,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { GAME_EVENTS, PLAYER_REACTION_BUBBLE_TTL_MS } from '@durak/shared-types';
 import { getApiErrorCode } from '@/lib/api';
-import { fetchGame, fetchSameComposition, listGames, type FetchGameResponse } from './api';
+import {
+  fetchGame,
+  fetchSameComposition,
+  listActiveGames,
+  listGames,
+  type FetchGameResponse,
+} from './api';
 import {
   fetchChatHistory,
   gamesSocket,
@@ -46,6 +52,7 @@ import type {
 } from './types';
 
 export const GAMES_QUERY_KEY = 'games' as const;
+export const ACTIVE_GAMES_QUERY_KEY = 'active-games' as const;
 
 /** Legacy: list of games stub (Phase 5 returns empty). Kept for forward-compat. */
 export function useGames(query: GameListQuery) {
@@ -53,6 +60,21 @@ export function useGames(query: GameListQuery) {
     queryKey: [GAMES_QUERY_KEY, query],
     queryFn: () => listGames(query),
     staleTime: 15_000,
+  });
+}
+
+/**
+ * List of currently-active games (any user can watch). Polls every 10s so a
+ * newly-started or just-finished game appears / disappears without the user
+ * having to refresh. The `game:over_public` listener on RatingPage also
+ * invalidates this query so finished games drop out promptly.
+ */
+export function useActiveGames() {
+  return useQuery({
+    queryKey: [ACTIVE_GAMES_QUERY_KEY],
+    queryFn: () => listActiveGames(),
+    staleTime: 5_000,
+    refetchInterval: 10_000,
   });
 }
 
