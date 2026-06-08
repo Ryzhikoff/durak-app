@@ -1,16 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
-import {
-  DEFAULT_LOBBY_SETTINGS,
-  REMATCH_WINDOW_MINUTES,
-  type GameDetail,
-  type Lobby,
-} from '@durak/shared-types';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { DEFAULT_LOBBY_SETTINGS, type Lobby } from '@durak/shared-types';
 import {
   LOBBY_INDEX_KEY,
   LOBBY_KEY_PREFIX,
@@ -19,7 +9,6 @@ import {
   USER_IN_LOBBY_KEY_PREFIX,
   mergeAndValidateSettings,
 } from './lobbies.service';
-import type { GamesHistoryService } from '../games/games-history.service';
 
 /**
  * In-memory fake of just enough of the ioredis surface for the service tests.
@@ -145,17 +134,8 @@ function makePrismaStub(users: Record<string, FakePrismaUser>) {
   };
 }
 
-function makeService(
-  redis: FakeRedis,
-  prisma: unknown,
-  history?: Partial<GamesHistoryService>,
-): LobbiesService {
-  return new LobbiesService(
-    { client: redis } as unknown as never,
-    prisma as never,
-    undefined,
-    history as never,
-  );
+function makeService(redis: FakeRedis, prisma: unknown): LobbiesService {
+  return new LobbiesService({ client: redis } as unknown as never, prisma as never, undefined);
 }
 
 const USER_A: FakePrismaUser = { id: 'ua', nickname: 'Alice', avatarUrl: null, disabledAt: null };
@@ -431,149 +411,5 @@ describe('LobbiesService.list', () => {
 describe('LobbiesService TTL contract', () => {
   it('uses the documented one-hour idle TTL', () => {
     expect(LOBBY_TTL_SECONDS).toBe(3600);
-  });
-});
-
-describe('LobbiesService.rematch', () => {
-  const refSettings = { ...DEFAULT_LOBBY_SETTINGS, turnTimer: 60 as const };
-  function makeDetail(overrides: Partial<GameDetail> = {}): GameDetail {
-    return {
-      id: 'g-1',
-      settings: refSettings,
-      startedAt: '2026-06-05T10:00:00.000Z',
-      finishedAt: new Date().toISOString(),
-      durationSec: 600,
-      loserId: 'ub',
-      totalBouts: 8,
-      participants: [
-        {
-          userId: 'ua',
-          nickname: 'Alice',
-          avatarUrl: null,
-          seatIndex: 0,
-          place: 1,
-          isWinner: true,
-          isLoser: false,
-          muBefore: 25,
-          sigmaBefore: 8,
-          muAfter: 26,
-          sigmaAfter: 7.5,
-          deltaDisplay: 4,
-          metrics: {
-            attacksMade: 0,
-            beatsMade: 0,
-            translatesMade: 0,
-            takesAsked: 0,
-            cardsTaken: 0,
-            boutsAttacked: 0,
-            boutsDefended: 0,
-            cheatAttemptedTotal: 0,
-            cheatCaught: 0,
-            cheatEscaped: 0,
-            noticesIssued: 0,
-            noticesCorrect: 0,
-            noticesWrong: 0,
-          },
-        },
-        {
-          userId: 'ub',
-          nickname: 'Bob',
-          avatarUrl: null,
-          seatIndex: 1,
-          place: 2,
-          isWinner: false,
-          isLoser: true,
-          muBefore: 25,
-          sigmaBefore: 8,
-          muAfter: 24,
-          sigmaAfter: 7.5,
-          deltaDisplay: -4,
-          metrics: {
-            attacksMade: 0,
-            beatsMade: 0,
-            translatesMade: 0,
-            takesAsked: 0,
-            cardsTaken: 0,
-            boutsAttacked: 0,
-            boutsDefended: 0,
-            cheatAttemptedTotal: 0,
-            cheatCaught: 0,
-            cheatEscaped: 0,
-            noticesIssued: 0,
-            noticesCorrect: 0,
-            noticesWrong: 0,
-          },
-        },
-      ],
-      ...overrides,
-    };
-  }
-
-  function makeHistory(detail: GameDetail | null): Partial<GamesHistoryService> {
-    return { getDetail: vi.fn(async () => detail) };
-  }
-
-  it('creates a new lobby with the same settings and notifies other participants', async () => {
-    const redis = new FakeRedis();
-    const prisma = makePrismaStub({ ua: USER_A, ub: USER_B });
-    const history = makeHistory(makeDetail());
-    const svc = makeService(redis, prisma, history);
-    const rematchInvite = vi.fn();
-    svc.setEventBus({
-      lobbyCreated: () => undefined,
-      lobbyUpdated: () => undefined,
-      lobbyDeleted: () => undefined,
-      lobbyArchived: () => undefined,
-      lobbyStarted: () => undefined,
-      rematchInvite,
-    });
-
-    const { lobby } = await svc.rematch('ua', 'g-1');
-    expect(lobby.players.map((p) => p.userId)).toEqual(['ua']);
-    expect(lobby.settings.turnTimer).toBe(60);
-    expect(rematchInvite).toHaveBeenCalledTimes(1);
-    expect(rematchInvite.mock.calls[0][0]).toEqual(['ub']);
-    expect(rematchInvite.mock.calls[0][1]).toMatchObject({
-      fromUserId: 'ua',
-      fromNickname: 'Alice',
-      originalGameId: 'g-1',
-      newLobbyId: lobby.id,
-    });
-  });
-
-  it('rejects with NOT_A_PARTICIPANT (403) when caller did not play', async () => {
-    const redis = new FakeRedis();
-    const prisma = makePrismaStub({ uc: USER_C });
-    const history = makeHistory(makeDetail());
-    const svc = makeService(redis, prisma, history);
-    await expect(svc.rematch('uc', 'g-1')).rejects.toBeInstanceOf(ForbiddenException);
-  });
-
-  it('rejects with REMATCH_WINDOW_CLOSED when the game finished too long ago', async () => {
-    const stale = new Date(Date.now() - (REMATCH_WINDOW_MINUTES + 5) * 60 * 1000).toISOString();
-    const redis = new FakeRedis();
-    const prisma = makePrismaStub({ ua: USER_A, ub: USER_B });
-    const history = makeHistory(makeDetail({ finishedAt: stale }));
-    const svc = makeService(redis, prisma, history);
-    await expect(svc.rematch('ua', 'g-1')).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'REMATCH_WINDOW_CLOSED' }),
-    });
-  });
-
-  it('returns 404 GAME_NOT_FOUND when the source game is unknown', async () => {
-    const redis = new FakeRedis();
-    const prisma = makePrismaStub({ ua: USER_A });
-    const history = makeHistory(null);
-    const svc = makeService(redis, prisma, history);
-    await expect(svc.rematch('ua', 'missing')).rejects.toBeInstanceOf(NotFoundException);
-  });
-
-  it('propagates ALREADY_IN_LOBBY when the caller already has an active lobby', async () => {
-    const redis = new FakeRedis();
-    const prisma = makePrismaStub({ ua: USER_A, ub: USER_B });
-    const history = makeHistory(makeDetail());
-    const svc = makeService(redis, prisma, history);
-    await svc.create('ua');
-    await expect(svc.rematch('ua', 'g-1')).rejects.toBeInstanceOf(ConflictException);
   });
 });

@@ -16,6 +16,7 @@ import { useAuthStore } from '@/stores/auth.store';
 import { useLogout } from '@/features/auth/hooks';
 import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/ui/Button';
+import { RematchListener } from '@/features/games/RematchListener';
 
 export function AppShell() {
   const { t } = useTranslation();
@@ -240,6 +241,11 @@ export function AppShell() {
       >
         <Outlet />
       </main>
+
+      {/* Global rematch coordinator. Lives at the AppShell level so a session
+          fired from a finished-game page can still pop the modal even after
+          the user navigated away to /rating or any other route. */}
+      <RematchListener />
     </div>
   );
 }

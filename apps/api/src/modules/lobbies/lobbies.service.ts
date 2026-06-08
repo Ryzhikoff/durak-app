@@ -2,7 +2,6 @@ import { randomBytes } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Inject,
   Injectable,
   Logger,
@@ -14,18 +13,14 @@ import {
   ALLOWED_TURN_TIMERS,
   DEFAULT_LOBBY_SETTINGS,
   LOBBY_PLAYER_COUNTS,
-  REMATCH_WINDOW_MINUTES,
-  type GameDetail,
   type Lobby,
   type LobbyPlayer,
-  type LobbyRematchInvitePayload,
   type LobbySettings,
   type LobbySummary,
 } from '@durak/shared-types';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { RedisService } from '../../infrastructure/redis/redis.service';
 import { GamesService } from '../games/games.service';
-import { GamesHistoryService } from '../games/games-history.service';
 
 /**
  * Slim subset of {@link GamesService} the lobby flow depends on. Declared as
@@ -90,12 +85,6 @@ interface LobbyEventBus {
    */
   lobbyArchived(lobbyId: string): void;
   lobbyStarted(lobby: Lobby, gameId: string): void;
-  /**
-   * Rematch invite — best-effort fanout to each `userId` whose socket is
-   * currently on the `/lobbies` namespace. Offline users are not buffered;
-   * the new lobby is still reachable from the public list / direct link.
-   */
-  rematchInvite(userIds: string[], payload: LobbyRematchInvitePayload): void;
 }
 
 const NOOP_BUS: LobbyEventBus = {
@@ -104,7 +93,6 @@ const NOOP_BUS: LobbyEventBus = {
   lobbyDeleted: () => undefined,
   lobbyArchived: () => undefined,
   lobbyStarted: () => undefined,
-  rematchInvite: () => undefined,
 };
 
 function lobbyKey(id: string): string {
@@ -233,9 +221,6 @@ export class LobbiesService {
     private readonly redis: RedisService,
     private readonly prisma: PrismaService,
     @Optional() @Inject(GamesService) private readonly gameLauncher?: ILobbyGameLauncher,
-    @Optional()
-    @Inject(GamesHistoryService)
-    private readonly gamesHistory?: GamesHistoryService,
   ) {}
 
   setEventBus(bus: LobbyEventBus): void {
@@ -546,72 +531,6 @@ export class LobbiesService {
       this.bus.lobbyArchived(lobby.id);
       return { lobby, gameId };
     });
-  }
-
-  /**
-   * Rematch — create a brand-new lobby with the same settings as a recently
-   * finished game. The caller becomes the first member; the OTHER participants
-   * receive a `lobby:rematch_invite` WS event (best-effort fanout — see
-   * {@link LobbyEventBus.rematchInvite}).
-   *
-   * Validation:
-   *  - `gameId` must resolve to a finished game in Postgres (active games /
-   *    unknowns → `GAME_NOT_FOUND`).
-   *  - Caller must be a participant of that game → `NOT_A_PARTICIPANT`.
-   *  - Game must have finished within {@link REMATCH_WINDOW_MINUTES} →
-   *    `REMATCH_WINDOW_CLOSED` otherwise.
-   *  - Standard {@link create} guard rails apply (e.g. `ALREADY_IN_LOBBY`).
-   */
-  async rematch(
-    userId: string,
-    gameId: string,
-  ): Promise<{ lobby: Lobby; sourceDetail: GameDetail }> {
-    if (!this.gamesHistory) {
-      // Wiring error — fail loud rather than silently producing a wrong lobby.
-      throw new BadRequestException({
-        code: 'REMATCH_UNAVAILABLE',
-        message: 'Rematch is not wired in this build',
-      });
-    }
-    const detail = await this.gamesHistory.getDetail(gameId);
-    if (!detail) {
-      throw new NotFoundException({
-        code: 'GAME_NOT_FOUND',
-        message: 'Game not found',
-      });
-    }
-    const isParticipant = detail.participants.some((p) => p.userId === userId);
-    if (!isParticipant) {
-      throw new ForbiddenException({
-        code: 'NOT_A_PARTICIPANT',
-        message: 'You did not play in this game',
-      });
-    }
-    const finishedAtMs = new Date(detail.finishedAt).getTime();
-    const windowMs = REMATCH_WINDOW_MINUTES * 60 * 1000;
-    if (!Number.isFinite(finishedAtMs) || Date.now() - finishedAtMs > windowMs) {
-      throw new BadRequestException({
-        code: 'REMATCH_WINDOW_CLOSED',
-        message: 'Too much time has passed since the game ended',
-      });
-    }
-    // Reuse the canonical create flow so all the ALREADY_IN_LOBBY / settings
-    // validation rules stay in one place.
-    const lobby = await this.create(userId, detail.settings);
-    const otherParticipantIds = detail.participants
-      .map((p) => p.userId)
-      .filter((id) => id !== userId);
-    if (otherParticipantIds.length > 0) {
-      const inviter = lobby.players.find((p) => p.userId === userId);
-      const payload: LobbyRematchInvitePayload = {
-        fromUserId: userId,
-        fromNickname: inviter?.nickname ?? userId,
-        originalGameId: detail.id,
-        newLobbyId: lobby.id,
-      };
-      this.bus.rematchInvite(otherParticipantIds, payload);
-    }
-    return { lobby, sourceDetail: detail };
   }
 
   // -------- internals --------

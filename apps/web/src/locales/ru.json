@@ -425,10 +425,7 @@
     "createLobby": "Создать ещё одно лобби",
     "rematch": {
       "button": "Ещё партию тем же составом",
-      "submitting": "Создаём лобби...",
-      "toastTitle": "Ребэтч!",
-      "toastBody": "{{nickname}} собрал ещё одну партию",
-      "toastCta": "Перейти"
+      "submitting": "Запускаем реванш..."
     },
     "metricsGroups": {
       "actions": "Действия",
@@ -635,6 +632,27 @@
       "seconds_other": "{{count}} сек"
     }
   },
+  "rematch": {
+    "modal": {
+      "title": "Реванш",
+      "subtitle": "{{nickname}} зовёт сыграть ещё одну партию тем же составом",
+      "youStarted": "Вы запустили реванш. Ждём остальных игроков.",
+      "participants": "Участники",
+      "youSuffix": "(вы)",
+      "acceptedBadge": "Готов",
+      "waitingBadge": "Ожидаем",
+      "progress": "Согласилось {{accepted}} из {{total}}",
+      "countdown": "Осталось {{seconds}} сек"
+    },
+    "accept": "Принять",
+    "accepting": "Принимаем...",
+    "decline": "Отказаться",
+    "cancel": "Отменить",
+    "timeoutMessage": "Время реванша истекло",
+    "declineMessage": "Один из игроков отказался от реванша",
+    "cancelMessage": "Реванш отменён",
+    "spawnFailedMessage": "Не удалось создать игру. Попробуйте ещё раз."
+  },
   "errors": {
     "INVALID_CREDENTIALS": "Неверный логин или пароль",
     "INVALID_CURRENT_PASSWORD": "Неверный текущий пароль",
@@ -671,9 +689,12 @@
     "CHAT_REACTION_INVALID": "Недопустимая реакция",
     "REACTION_RATE_LIMIT": "Слишком часто",
     "REACTION_INVALID": "Некорректная реакция",
-    "REMATCH_WINDOW_CLOSED": "Прошло слишком много времени. Создайте новое лобби вручную.",
+    "REMATCH_WINDOW_CLOSED": "Прошло слишком много времени с окончания игры",
+    "REMATCH_NOT_FOUND": "Реванш недоступен — сессия уже закрыта",
+    "REMATCH_EXPIRED": "Время реванша истекло",
+    "REMATCH_RACE": "Не удалось согласовать реванш — попробуйте ещё раз",
     "NOT_A_PARTICIPANT": "Вы не участвовали в этой игре",
-    "REMATCH_UNAVAILABLE": "Ребэтч сейчас недоступен",
+    "REMATCH_UNAVAILABLE": "Реванш сейчас недоступен",
     "generic": "Что-то пошло не так",
     "boundary": {
       "title": "Что-то пошло не так",

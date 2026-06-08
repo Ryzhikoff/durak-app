@@ -5,11 +5,13 @@ import { GamesGateway } from './games.gateway';
 import { GamesService } from './games.service';
 import { GamesHistoryService } from './games-history.service';
 import { GamesPauseService } from './games-pause.service';
+import { RematchController } from './rematch.controller';
+import { RematchService } from './rematch.service';
 
 @Module({
   imports: [AuthModule],
-  controllers: [GamesController],
-  providers: [GamesService, GamesGateway, GamesHistoryService, GamesPauseService],
-  exports: [GamesService, GamesHistoryService, GamesPauseService],
+  controllers: [GamesController, RematchController],
+  providers: [GamesService, GamesGateway, GamesHistoryService, GamesPauseService, RematchService],
+  exports: [GamesService, GamesHistoryService, GamesPauseService, RematchService],
 })
 export class GamesModule {}

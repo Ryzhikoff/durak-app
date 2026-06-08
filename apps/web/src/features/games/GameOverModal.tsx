@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { Alert, Button, Modal } from '@/components/ui';
 import { getApiErrorCode, getApiErrorMessage } from '@/lib/api';
 import { useRematch } from './hooks';
@@ -19,10 +19,13 @@ interface GameOverModalProps {
  *  - else → "you won" (i.e. the loser is someone else and you're not them)
  *
  * Always lists the finish placements so the player sees where everyone landed.
+ *
+ * The "Ещё партия" CTA now initiates a {@link RematchSession} (see
+ * {@link useRematch}) — the global {@link RematchListener} renders the
+ * coordinator modal on top of this one as soon as the session lands in cache.
  */
 export function GameOverModal({ state, open, onClose }: GameOverModalProps) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const rematch = useRematch();
   const [rematchError, setRematchError] = useState<string | null>(null);
   const loserId = state.loserPlayerId;
@@ -49,22 +52,12 @@ export function GameOverModal({ state, open, onClose }: GameOverModalProps) {
   const onRematch = async () => {
     setRematchError(null);
     try {
-      const { lobbyId } = await rematch.mutateAsync(state.id);
-      onClose();
-      navigate(`/lobbies/${lobbyId}`);
+      await rematch.mutateAsync(state.id);
+      // The session is now in the cache; <RematchListener> will pop its modal
+      // on top of this one. We don't close this modal — the listener owns the
+      // top layer and the user explicitly cancels via that modal's buttons.
     } catch (err) {
       const code = getApiErrorCode(err);
-      if (code === 'ALREADY_IN_LOBBY') {
-        const ax = err as {
-          response?: { data?: { error?: { details?: { currentLobbyId?: string } } } };
-        };
-        const currentLobbyId = ax.response?.data?.error?.details?.currentLobbyId;
-        if (currentLobbyId) {
-          onClose();
-          navigate(`/lobbies/${currentLobbyId}`);
-          return;
-        }
-      }
       setRematchError(
         code
           ? t(`errors.${code}`, { defaultValue: getApiErrorMessage(err, t('errors.generic')) })

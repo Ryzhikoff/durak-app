@@ -9,9 +9,15 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { GAME_EVENTS, PLAYER_REACTION_BUBBLE_TTL_MS } from '@durak/shared-types';
+import {
+  GAME_EVENTS,
+  PLAYER_REACTION_BUBBLE_TTL_MS,
+  type RematchSession,
+} from '@durak/shared-types';
 import { getApiErrorCode } from '@/lib/api';
 import {
+  acceptRematch,
+  cancelRematch,
   fetchGame,
   fetchSameComposition,
   listActiveGames,
@@ -54,6 +60,8 @@ import type {
 
 export const GAMES_QUERY_KEY = 'games' as const;
 export const ACTIVE_GAMES_QUERY_KEY = 'active-games' as const;
+/** TanStack Query key for the active rematch session (single per logged-in user). */
+export const REMATCH_SESSION_QUERY_KEY = ['rematch', 'session'] as const;
 
 /** Legacy: list of games stub (Phase 5 returns empty). Kept for forward-compat. */
 export function useGames(query: GameListQuery) {
@@ -809,18 +817,63 @@ export function useGameReactions(
 }
 
 /**
- * Rematch — `POST /games/:id/rematch`. On success the response carries the new
- * `lobbyId`; callers route the user into `/lobbies/{id}`. The hook is a thin
- * wrapper around TanStack's `useMutation` so consumers get loading state +
- * error propagation for free.
+ * Initiate (or idempotent accept) a rematch session. On success the response
+ * carries the freshly-updated {@link RematchSession}; the hook also seeds it
+ * into TanStack-Query cache under {@link REMATCH_SESSION_QUERY_KEY} so the
+ * floating modal can render straight away without waiting for the WS broadcast.
  *
  * Server-side errors that the UI translates via i18n:
- *  - `ALREADY_IN_LOBBY` (409): user already in a lobby — show "go to lobby".
  *  - `NOT_A_PARTICIPANT` (403): caller wasn't in the source game.
  *  - `REMATCH_WINDOW_CLOSED` (400): too long since the source game ended.
+ *  - `REMATCH_NOT_FOUND` (404): session is gone (cancelled / expired).
+ *  - `REMATCH_EXPIRED` (410): server-side TTL fired between read and lock.
  */
 export function useRematch() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (gameId: string) => rematch(gameId),
+    onSuccess: ({ session }) => {
+      qc.setQueryData<RematchSession | null>(REMATCH_SESSION_QUERY_KEY, session);
+    },
   });
+}
+
+/** Accept an in-flight rematch session. */
+export function useAcceptRematch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (sourceGameId: string) => acceptRematch(sourceGameId),
+    onSuccess: ({ session }) => {
+      qc.setQueryData<RematchSession | null>(REMATCH_SESSION_QUERY_KEY, session);
+    },
+  });
+}
+
+/** Cancel an in-flight rematch session (initiator / invitee). */
+export function useCancelRematch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (sourceGameId: string) => cancelRematch(sourceGameId),
+    onSuccess: () => {
+      qc.setQueryData<RematchSession | null>(REMATCH_SESSION_QUERY_KEY, null);
+    },
+  });
+}
+
+/**
+ * Reads the live rematch session out of the cache. Populated by:
+ *  - {@link useRematch} success handler (initiator path),
+ *  - the global {@link useRematchSocket} listener (`rematch:invited` /
+ *    `rematch:updated`).
+ * Cleared by `rematch:started` / `rematch:cancelled` and by
+ * {@link useCancelRematch}.
+ */
+export function useRematchSession(): RematchSession | null {
+  const query = useQuery<RematchSession | null>({
+    queryKey: REMATCH_SESSION_QUERY_KEY,
+    queryFn: () => null,
+    staleTime: Infinity,
+    initialData: null,
+  });
+  return query.data ?? null;
 }

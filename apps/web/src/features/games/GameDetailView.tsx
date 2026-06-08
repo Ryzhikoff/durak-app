@@ -13,7 +13,7 @@
  * screens; the podium becomes a 3-column row of medals.
  */
 import { useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { ChevronDown, Crown, Trophy } from 'lucide-react';
@@ -636,7 +636,6 @@ function FooterCta({ detail, t }: SectionProps) {
   // "Create another lobby" only makes sense for someone who actually played
   // this game — surfacing it for spectators / random viewers would be noise.
   const myUserId = useAuthStore((s) => s.user?.id);
-  const navigate = useNavigate();
   const isParticipant = myUserId
     ? detail.participants.some((p) => p.userId === myUserId)
     : false;
@@ -651,22 +650,11 @@ function FooterCta({ detail, t }: SectionProps) {
   const onRematch = async () => {
     setRematchError(null);
     try {
-      const { lobbyId } = await rematch.mutateAsync(detail.id);
-      navigate(`/lobbies/${lobbyId}`);
+      await rematch.mutateAsync(detail.id);
+      // The session is now in the TanStack cache; the global
+      // <RematchListener> renders the coordinator modal on top of this page.
     } catch (err) {
       const code = getApiErrorCode(err);
-      // Friendly fallback when the user is already in a lobby — route them
-      // there instead of dead-ending on an error toast.
-      if (code === 'ALREADY_IN_LOBBY') {
-        const ax = err as {
-          response?: { data?: { error?: { details?: { currentLobbyId?: string } } } };
-        };
-        const currentLobbyId = ax.response?.data?.error?.details?.currentLobbyId;
-        if (currentLobbyId) {
-          navigate(`/lobbies/${currentLobbyId}`);
-          return;
-        }
-      }
       setRematchError(
         code
           ? t(`errors.${code}`, { defaultValue: getApiErrorMessage(err, t('errors.generic')) })

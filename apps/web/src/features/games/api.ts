@@ -5,7 +5,8 @@ import type {
   GameListQuery,
   GameListResponse,
   PauseInfo,
-  RematchResponse,
+  RematchAcceptedResponse,
+  RematchInitiatedResponse,
   SameCompositionResponse,
 } from '@durak/shared-types';
 import type { ClientGameState } from './types';
@@ -71,12 +72,27 @@ export async function fetchSameComposition(
 }
 
 /**
- * Rematch — spin up a fresh lobby with the same settings as the finished game.
- * Backend pushes a `lobby:rematch_invite` WS event to every OTHER participant.
- * The caller's response carries `{ lobbyId }` so the UI can navigate straight
- * into the new lobby.
+ * Rematch — initiate (first caller) or idempotent accept (subsequent callers).
+ * Returns the freshly-updated {@link RematchSession} so the caller can hydrate
+ * the modal without waiting for the WS broadcast.
  */
-export async function rematch(gameId: string): Promise<RematchResponse> {
-  const res = await api.post<RematchResponse>(`/games/${gameId}/rematch`);
+export async function rematch(gameId: string): Promise<RematchInitiatedResponse> {
+  const res = await api.post<RematchInitiatedResponse>(`/games/${gameId}/rematch`);
+  return res.data;
+}
+
+/** Accept an in-flight rematch session. */
+export async function acceptRematch(sourceGameId: string): Promise<RematchAcceptedResponse> {
+  const res = await api.post<RematchAcceptedResponse>(
+    `/games/${sourceGameId}/rematch/accept`,
+  );
+  return res.data;
+}
+
+/** Cancel an in-flight rematch session (initiator or invitee). */
+export async function cancelRematch(sourceGameId: string): Promise<{ cancelled: true }> {
+  const res = await api.post<{ cancelled: true }>(
+    `/games/${sourceGameId}/rematch/cancel`,
+  );
   return res.data;
 }

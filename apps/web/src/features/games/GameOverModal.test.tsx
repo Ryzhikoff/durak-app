@@ -12,7 +12,33 @@ vi.mock('./api', async () => {
   const actual = await vi.importActual<typeof import('./api')>('./api');
   return {
     ...actual,
-    rematch: vi.fn().mockResolvedValue({ lobbyId: 'new-lobby-id' }),
+    rematch: vi.fn().mockResolvedValue({
+      session: {
+        sourceGameId: 'g-finished',
+        initiator: { userId: 'u-me', nickname: 'Me', avatarUrl: null },
+        expectedUserIds: ['u-me', 'u-opp'],
+        accepted: ['u-me'],
+        expiresAt: new Date(Date.now() + 90_000).toISOString(),
+        settings: {
+          maxPlayers: 2,
+          firstBoutLimit: 6,
+          attackerScope: 'all',
+          cheatingEnabled: false,
+          cheatAttempts: 0,
+          cheatNoticeScope: 'defender_only',
+          layoutOnRepeat: 'random',
+          firstTurn: 'lowest_trump',
+          deckSize: 36,
+          jokers: false,
+          turnTimer: null,
+        },
+        composition: ['u-me', 'u-opp'],
+        participants: [
+          { userId: 'u-me', nickname: 'Me', avatarUrl: null },
+          { userId: 'u-opp', nickname: 'Opponent', avatarUrl: null },
+        ],
+      },
+    }),
   };
 });
 

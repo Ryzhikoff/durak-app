@@ -1,50 +1,23 @@
-import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Plus, X } from 'lucide-react';
-import {
-  LOBBY_EVENTS,
-  type LobbyRematchInvitePayload,
-  type LobbySummary,
-} from '@durak/shared-types';
+import { Plus } from 'lucide-react';
+import { type LobbySummary } from '@durak/shared-types';
 import { Alert, Button, Card, Spinner } from '@/components/ui';
 import { Avatar } from '@/components/Avatar';
 import { getApiErrorMessage } from '@/lib/api';
-import { lobbiesSocket, useLobbySocket } from '@/lib/socket';
+import { useLobbySocket } from '@/lib/socket';
 import { useLobbyList } from './hooks';
 import { CreateLobbyModal } from './CreateLobbyModal';
 
 export function LobbyListSection() {
   const { t } = useTranslation();
   const list = useLobbyList();
-  const navigate = useNavigate();
   const [createOpen, setCreateOpen] = useState(false);
-  const [invite, setInvite] = useState<LobbyRematchInvitePayload | null>(null);
 
-  // Keep the lobby socket alive even when the list itself is rendered without
-  // the list query needing it — `useLobbyList` already hooks `useLobbySocket`,
-  // but this makes the dependency explicit for the invite-listener path below.
+  // Keep the lobby socket alive so list updates flow in even when this
+  // section is the only consumer on the home page.
   useLobbySocket();
-
-  useEffect(() => {
-    const onInvite = (payload: LobbyRematchInvitePayload) => {
-      // Overwrite any previous invite — the most recent rematch is the one
-      // the user is most likely to care about. Stays on screen until the user
-      // clicks "go" or dismisses it.
-      setInvite(payload);
-    };
-    lobbiesSocket.on(LOBBY_EVENTS.rematchInvite, onInvite);
-    return () => {
-      lobbiesSocket.off(LOBBY_EVENTS.rematchInvite, onInvite);
-    };
-  }, []);
-
-  const onAcceptInvite = () => {
-    if (!invite) return;
-    const target = invite.newLobbyId;
-    setInvite(null);
-    navigate(`/lobbies/${target}`);
-  };
 
   return (
     <section
@@ -60,35 +33,6 @@ export function LobbyListSection() {
           {t('lobbies.create')}
         </Button>
       </header>
-
-      {invite ? (
-        <Card
-          className="flex items-center justify-between gap-3 border border-accent/40 bg-accent/5 !p-3"
-          data-testid="rematch-invite"
-        >
-          <div className="min-w-0 flex-1">
-            <div className="text-sm font-semibold">
-              {t('gameDetail.rematch.toastTitle')}
-            </div>
-            <div className="truncate text-xs text-textMuted">
-              {t('gameDetail.rematch.toastBody', { nickname: invite.fromNickname })}
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Button size="sm" onClick={onAcceptInvite}>
-              {t('gameDetail.rematch.toastCta')}
-            </Button>
-            <button
-              type="button"
-              onClick={() => setInvite(null)}
-              className="rounded-full p-1 text-textMuted hover:bg-surfaceAlt"
-              aria-label={t('common.cancel')}
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        </Card>
-      ) : null}
 
       {list.isPending ? (
         <Card>

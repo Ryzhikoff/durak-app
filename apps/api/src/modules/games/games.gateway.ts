@@ -18,16 +18,20 @@ import {
   GAME_EVENTS,
   GAME_NAMESPACE,
   PAUSE_DISCONNECT_GRACE_SECONDS,
+  REMATCH_EVENTS,
   type ChatMessage,
   type ChatReactionUpdate,
   type PauseInfo,
   type PauseVote,
   type PlayerReactionPayload,
+  type RematchCancelReason,
+  type RematchSession,
 } from '@durak/shared-types';
 import { SESSION_COOKIE_NAME } from '../auth/auth.constants';
 import { SessionService } from '../auth/session.service';
 import { GamesService } from './games.service';
 import { GamesPauseService } from './games-pause.service';
+import { RematchService } from './rematch.service';
 import { GameCommandWsDto } from './dto/game-command.dto';
 import {
   redactForPlayer,
@@ -78,6 +82,7 @@ export class GamesGateway
     private readonly sessions: SessionService,
     private readonly games: GamesService,
     private readonly pause: GamesPauseService,
+    private readonly rematch: RematchService,
   ) {}
 
   /**
@@ -95,11 +100,24 @@ export class GamesGateway
       chatReaction: (gameId, update) => this.broadcastChatReaction(gameId, update),
       playerReaction: (gameId, payload) => this.broadcastPlayerReaction(gameId, payload),
     });
+    this.rematch.setEventBus({
+      invited: (userIds, session) =>
+        this.fanoutRematchEvent(userIds, REMATCH_EVENTS.invited, session),
+      updated: (userIds, session) =>
+        this.fanoutRematchEvent(userIds, REMATCH_EVENTS.updated, session),
+      started: (userIds, payload) =>
+        this.fanoutRematchEvent(userIds, REMATCH_EVENTS.started, payload),
+      cancelled: (userIds, payload) =>
+        this.fanoutRematchEvent(userIds, REMATCH_EVENTS.cancelled, payload),
+    });
     // Resurrect grace-window timers for any games that were already paused
     // before the api restarted. In-memory state is lost but the Redis blob
     // tells us how much time is left. Best-effort: if the SCAN fails (Redis
     // not ready yet) the next disconnect/reconnect will fix things.
     void this.resumePauseTimers();
+    // Same idea for rematch sessions: the TTL timers are in-memory, so on
+    // boot we read every live `rematch:*` key and re-arm the countdown.
+    void this.rematch.resumeTimers();
   }
 
   /**
@@ -755,6 +773,42 @@ export class GamesGateway
       this.server.to(gameRoom(gameId)).emit(GAME_EVENTS.playerReaction, payload);
     } catch (err) {
       this.logger.warn({ err, gameId }, 'failed to broadcast player reaction');
+    }
+  }
+
+  /**
+   * Per-user fanout for the rematch flow. We don't pin a room to a userId on
+   * the gateway (no presence tracking), so we walk the namespace's connected
+   * sockets and pick the ones whose `data.userId` matches a recipient. Mirrors
+   * the lobbies-side fanout but on the `/games` namespace.
+   */
+  private fanoutRematchEvent(
+    userIds: string[],
+    eventName: string,
+    payload:
+      | RematchSession
+      | { sourceGameId: string; newGameId: string }
+      | { sourceGameId: string; reason: RematchCancelReason },
+  ): void {
+    if (userIds.length === 0) return;
+    const targets = new Set(userIds);
+    const ns = typeof this.server?.of === 'function' ? this.server.of(GAME_NAMESPACE) : undefined;
+    // socket.io exposes the live connection table as `namespace.sockets` (a
+    // Map). Fall back to the server-level Map for test harnesses that don't
+    // surface a namespace.
+    const sockets = (ns?.sockets ?? this.server?.sockets) as
+      | Map<string, { data?: { userId?: string }; emit: (e: string, p: unknown) => void }>
+      | undefined;
+    if (!sockets || typeof sockets.values !== 'function') return;
+    for (const socket of sockets.values()) {
+      const uid = socket.data?.userId;
+      if (uid && targets.has(uid)) {
+        try {
+          socket.emit(eventName, payload);
+        } catch (err) {
+          this.logger.warn({ err, eventName, uid }, 'failed to fanout rematch event');
+        }
+      }
     }
   }
 

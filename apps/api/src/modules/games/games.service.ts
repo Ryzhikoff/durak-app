@@ -383,9 +383,35 @@ export class GamesService {
    *
    * The lobby is expected to already have all of its readiness/min-players
    * checks done; this method only converts seats and persists state.
+   *
+   * Thin wrapper around {@link createFromComposition} — the rematch flow uses
+   * the same lower layer without going through a lobby.
    */
   async createFromLobby(lobby: Lobby): Promise<{ gameId: string; state: GameState }> {
-    if (lobby.players.length < 2) {
+    return this.createFromComposition({
+      settings: lobby.settings,
+      players: lobby.players.map((p) => ({
+        userId: p.userId,
+        nickname: p.nickname,
+        avatarUrl: p.avatarUrl,
+      })),
+      previousLoserId: null,
+    });
+  }
+
+  /**
+   * Core "spawn a game" path used by both the lobby-start flow and the
+   * rematch flow. Accepts the bare minimum needed by the engine + redactor:
+   * a {@link LobbySettings} blob and an ordered list of seats. Resolves
+   * per-user profile fields (avatar / card-back) from Postgres and persists
+   * the new game to Redis with the standard index/membership wiring.
+   */
+  async createFromComposition(input: {
+    settings: Lobby['settings'];
+    players: Array<{ userId: string; nickname: string; avatarUrl: string | null }>;
+    previousLoserId?: string | null;
+  }): Promise<{ gameId: string; state: GameState }> {
+    if (input.players.length < 2) {
       // Defensive: the caller should already have rejected this. Surface as a
       // 400 so the WS gateway maps it cleanly via the existing error envelope.
       throw new BadRequestException({
@@ -393,7 +419,7 @@ export class GamesService {
         message: 'Need at least 2 players to start a game',
       });
     }
-    const seats: PlayerSeat[] = lobby.players.map((p) => ({
+    const seats: PlayerSeat[] = input.players.map((p) => ({
       id: p.userId,
       nickname: p.nickname,
     }));
@@ -401,13 +427,19 @@ export class GamesService {
     const state = createGame({
       id,
       seed: generateSeed(),
-      settings: lobby.settings,
+      settings: input.settings,
       players: seats,
-      previousLoserId: null,
+      previousLoserId: input.previousLoserId ?? null,
     });
     // Resolve per-user profile fields (avatar / card-back) used by the
     // redactor. The lobby seat only carries nickname + avatarUrl.
-    const profiles = await this.loadProfiles(lobby);
+    const profiles = await this.loadProfilesForIds(
+      input.players.map((p) => ({
+        userId: p.userId,
+        nickname: p.nickname,
+        avatarUrl: p.avatarUrl,
+      })),
+    );
     await this.persistNew(state, profiles);
     return { gameId: id, state };
   }
@@ -964,8 +996,10 @@ export class GamesService {
 
   // -------- internals --------
 
-  private async loadProfiles(lobby: Lobby): Promise<GameUserProfiles> {
-    const ids = lobby.players.map((p) => p.userId);
+  private async loadProfilesForIds(
+    seats: Array<{ userId: string; nickname: string; avatarUrl: string | null }>,
+  ): Promise<GameUserProfiles> {
+    const ids = seats.map((p) => p.userId);
     let users: Array<{
       id: string;
       nickname: string;
@@ -985,12 +1019,12 @@ export class GamesService {
         },
       });
     } catch (err) {
-      // Failure here is non-fatal: we fall back to the lobby's known fields.
-      this.logger.warn({ err }, 'Failed to load user profiles for game; using lobby fallback');
+      // Failure here is non-fatal: we fall back to the seat-supplied fields.
+      this.logger.warn({ err }, 'Failed to load user profiles for game; using seat fallback');
     }
     const byId = new Map(users.map((u) => [u.id, u]));
     const out: GameUserProfiles = {};
-    for (const lp of lobby.players) {
+    for (const lp of seats) {
       const u = byId.get(lp.userId);
       const profile: GameUserProfile = {
         nickname: u?.nickname ?? lp.nickname,

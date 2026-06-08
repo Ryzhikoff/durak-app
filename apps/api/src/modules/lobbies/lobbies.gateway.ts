@@ -14,7 +14,6 @@ import {
   LOBBY_EVENTS,
   LOBBY_NAMESPACE,
   type Lobby,
-  type LobbyRematchInvitePayload,
   type LobbySettings,
   type LobbySummary,
 } from '@durak/shared-types';
@@ -83,7 +82,6 @@ export class LobbiesGateway
       lobbyDeleted: (id) => this.broadcastDeleted(id),
       lobbyArchived: (id) => this.broadcastArchived(id),
       lobbyStarted: (lobby, gameId) => this.broadcastStarted(lobby, gameId),
-      rematchInvite: (userIds, payload) => this.fanoutRematchInvite(userIds, payload),
     });
   }
 
@@ -262,29 +260,6 @@ export class LobbiesGateway
 
   private broadcastStarted(lobby: Lobby, gameId: string): void {
     this.server.to(lobbyRoom(lobby.id)).emit(LOBBY_EVENTS.started, { gameId });
-  }
-
-  /**
-   * Per-user fanout for rematch invites. We can't pin a room to a userId on
-   * the gateway (no presence tracking), so we walk the namespace's connected
-   * sockets and pick the ones whose `data.userId` matches a recipient. This
-   * scales fine for the lobby namespace where the connection count is small.
-   */
-  private fanoutRematchInvite(userIds: string[], payload: LobbyRematchInvitePayload): void {
-    if (userIds.length === 0) return;
-    const targets = new Set(userIds);
-    const ns = typeof this.server?.of === 'function' ? this.server.of(LOBBY_NAMESPACE) : undefined;
-    const sockets = ns?.sockets;
-    if (!sockets) return;
-    // socket.io's `sockets` is a Map keyed by socket id. Iterating is O(n) but
-    // n is bounded by the namespace's live connection count which is fine for
-    // a lobby fanout.
-    for (const socket of sockets.values()) {
-      const uid = (socket.data as { userId?: string } | undefined)?.userId;
-      if (uid && targets.has(uid)) {
-        socket.emit(LOBBY_EVENTS.rematchInvite, payload);
-      }
-    }
   }
 
   // -------- helpers --------

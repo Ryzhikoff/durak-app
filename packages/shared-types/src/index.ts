@@ -385,20 +385,121 @@ export interface SameCompositionResponse {
 }
 
 /**
- * Rematch — response of `POST /games/:id/rematch`. Backend creates a fresh
- * lobby with the same settings as the reference game; the creator is the
- * first member, other participants receive an invite via WS.
- */
-export interface RematchResponse {
-  lobbyId: string;
-}
-
-/**
  * Window (minutes) after a game finishes during which participants may still
  * trigger a rematch. After that, the UI hides the rematch CTA and the backend
  * returns `REMATCH_WINDOW_CLOSED` if a stale client tries anyway.
  */
 export const REMATCH_WINDOW_MINUTES = 30;
+
+/**
+ * Lifetime (seconds) of a {@link RematchSession} once initiated. The first
+ * participant to click "Ещё партия" creates the session; the others have this
+ * many seconds to accept. After that the session is auto-cancelled and the
+ * UI hides the modal with a `rematch:cancelled` broadcast (`reason='expired'`).
+ */
+export const REMATCH_SESSION_TTL_SECONDS = 90;
+
+/**
+ * Lightweight public projection of a participant attached to a {@link RematchSession}.
+ * Mirrors `LobbyPlayer` minus the `isReady` flag.
+ */
+export interface RematchPublicUser {
+  userId: string;
+  nickname: string;
+  avatarUrl: string | null;
+}
+
+/**
+ * Server-side rematch session blob. Lives in Redis under `rematch:<sourceGameId>`.
+ * Created by the first participant to click "Ещё партия"; updated whenever
+ * another participant accepts. When `accepted.length === expectedUserIds.length`
+ * a fresh game is spawned (same composition, same settings) and the session is
+ * removed.
+ *
+ * - `sourceGameId` — the finished game we're rematching from (also the key).
+ * - `initiator` — public projection of the user who triggered the session.
+ * - `expectedUserIds` — every participant of the source game, in source seat
+ *   order. Determines the full quorum required to start the new game.
+ * - `accepted` — subset of `expectedUserIds` who have already pressed
+ *   "Принять" (the initiator is always implicitly accepted on create).
+ * - `expiresAt` — ISO 8601 deadline matching `REMATCH_SESSION_TTL_SECONDS`.
+ * - `settings` — `LobbySettings` snapshot from the source game (carried
+ *   forward verbatim into the new game so participants don't have to
+ *   re-confirm rules).
+ * - `composition` — `expectedUserIds` in the order they should be seated in
+ *   the new game. Same order as the source game's seat layout so the
+ *   "turn-on-loser" rule transitions cleanly.
+ * - `participants` — denormalised nickname/avatar for each expected user so
+ *   the client modal can render avatars without a separate fetch.
+ */
+export interface RematchSession {
+  sourceGameId: string;
+  initiator: RematchPublicUser;
+  expectedUserIds: string[];
+  accepted: string[];
+  expiresAt: string;
+  settings: LobbySettings;
+  composition: string[];
+  participants: RematchPublicUser[];
+}
+
+/** Response of `POST /games/:id/rematch` (initiate or idempotent accept). */
+export interface RematchInitiatedResponse {
+  session: RematchSession;
+}
+
+/** Response of `POST /games/:id/rematch/accept`. */
+export interface RematchAcceptedResponse {
+  session: RematchSession;
+}
+
+/** Reason a rematch session was cancelled — drives the cancel-notice copy. */
+export type RematchCancelReason =
+  | 'declined'
+  | 'expired'
+  | 'cancelled'
+  | 'spawn_failed';
+
+/**
+ * Server -> client payload for `rematch:invited`. Carries the freshly-created
+ * session so the client can pop the modal directly. Targets every user in
+ * `expectedUserIds` except the initiator (the initiator already has the
+ * session as the response of the POST).
+ */
+export type RematchInviteEvent = RematchSession;
+
+/**
+ * Server -> client payload for `rematch:updated`. Carries the live session
+ * with the updated `accepted` list. Targets every user in `expectedUserIds`.
+ */
+export type RematchUpdatedEvent = RematchSession;
+
+/** Server -> client payload for `rematch:started`. */
+export interface RematchStartedEvent {
+  sourceGameId: string;
+  newGameId: string;
+}
+
+/** Server -> client payload for `rematch:cancelled`. */
+export interface RematchCancelledEvent {
+  sourceGameId: string;
+  reason: RematchCancelReason;
+}
+
+/**
+ * Canonical WS event names for the rematch flow. Used on both ends to avoid
+ * string typos. All events ride the existing `/games` namespace because
+ * participants are already authenticated there (no separate lobby connection
+ * needed).
+ */
+export const REMATCH_EVENTS = {
+  invited: 'rematch:invited',
+  updated: 'rematch:updated',
+  started: 'rematch:started',
+  cancelled: 'rematch:cancelled',
+} as const;
+
+export type RematchEventName = (typeof REMATCH_EVENTS)[keyof typeof REMATCH_EVENTS];
 
 // ---------- Active live games (spectator mode) ----------
 
@@ -562,29 +663,9 @@ export const LOBBY_EVENTS = {
   added: 'lobbies:added',
   updated: 'lobbies:updated',
   removed: 'lobbies:removed',
-  /**
-   * Server -> Client (per-user). Fired when a finished-game participant calls
-   * `POST /games/:id/rematch`: every OTHER participant who is currently online
-   * on the `/lobbies` namespace receives this. The UI shows a toast with a
-   * "join" link. Misses are tolerated (player offline at the moment) — the
-   * rematch lobby is still in the list and shareable via URL.
-   */
-  rematchInvite: 'lobby:rematch_invite',
 } as const;
 
 export type LobbyEventName = (typeof LOBBY_EVENTS)[keyof typeof LOBBY_EVENTS];
-
-/**
- * Payload of {@link LOBBY_EVENTS.rematchInvite}. Carries the inviter's
- * identity + both ids so the client can route directly to the new lobby and
- * cross-reference the source game if needed.
- */
-export interface LobbyRematchInvitePayload {
-  fromUserId: string;
-  fromNickname: string;
-  originalGameId: string;
-  newLobbyId: string;
-}
 
 // ---------- Live games (Phase 5) ----------
 
