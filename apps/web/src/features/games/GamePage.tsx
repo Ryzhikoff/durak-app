@@ -850,7 +850,7 @@ function GameRoom({
                 </button>
                 {reactionPickerOpen ? (
                   <div
-                    className="absolute bottom-full right-0 z-30 mb-2 flex max-h-40 w-64 flex-wrap gap-0.5 overflow-y-auto rounded-xl border border-border bg-surface p-2 shadow-2xl"
+                    className="absolute bottom-full right-0 z-30 mb-2 flex max-h-40 w-64 flex-wrap gap-0.5 overflow-y-auto rounded-xl border border-border bg-surface p-2 shadow-2xl md:max-h-72 md:w-96 md:gap-1 md:p-3"
                     role="toolbar"
                     aria-label={t('game.reactions.send')}
                     data-testid="reaction-picker"
@@ -860,7 +860,7 @@ function GameRoom({
                         key={emoji}
                         type="button"
                         onClick={() => void onPickReaction(emoji)}
-                        className="shrink-0 rounded px-1.5 py-0.5 text-xl leading-none transition-colors hover:bg-border"
+                        className="shrink-0 rounded px-1.5 py-0.5 text-xl leading-none transition-colors hover:bg-border md:px-2.5 md:py-1 md:text-4xl"
                         aria-label={emoji}
                         data-testid={`reaction-emoji-${emoji}`}
                       >

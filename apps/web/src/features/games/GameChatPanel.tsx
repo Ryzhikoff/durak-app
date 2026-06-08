@@ -389,7 +389,7 @@ export function GameChatPanel({
             reaction request toggles it. Suppressed in read-only spectator mode. */}
         {picker && !readOnly ? (
           <div
-            className="flex max-h-32 flex-wrap gap-0.5 overflow-y-auto border-t border-border bg-surfaceAlt px-2 py-1.5"
+            className="flex max-h-32 flex-wrap gap-0.5 overflow-y-auto border-t border-border bg-surfaceAlt px-2 py-1.5 md:max-h-56 md:gap-1 md:px-3 md:py-2"
             data-testid="chat-emoji-picker"
             role="toolbar"
             aria-label={
@@ -403,7 +403,7 @@ export function GameChatPanel({
                 key={emoji}
                 type="button"
                 onClick={() => onPickEmoji(emoji)}
-                className="shrink-0 rounded px-1 py-0.5 text-lg leading-none transition-colors hover:bg-border"
+                className="shrink-0 rounded px-1 py-0.5 text-lg leading-none transition-colors hover:bg-border md:px-2 md:py-1 md:text-3xl"
                 tabIndex={-1}
                 aria-label={emoji}
                 data-testid={`chat-emoji-${emoji}`}
