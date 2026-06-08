@@ -631,15 +631,15 @@ function ChatMessageGroup({
               <div
                 className={
                   isMine
-                    ? 'flex flex-row-reverse items-center gap-1'
-                    : 'flex items-center gap-1'
+                    ? 'flex w-full min-w-0 flex-row-reverse items-center gap-1'
+                    : 'flex w-full min-w-0 items-center gap-1'
                 }
               >
                 <div
                   className={
                     isMine
-                      ? 'rounded-2xl rounded-br-sm bg-accent px-3 py-1.5 text-sm text-accentText'
-                      : 'rounded-2xl rounded-bl-sm bg-surfaceAlt px-3 py-1.5 text-sm text-text'
+                      ? 'min-w-0 max-w-full break-words rounded-2xl rounded-br-sm bg-accent px-3 py-1.5 text-sm text-accentText'
+                      : 'min-w-0 max-w-full break-words rounded-2xl rounded-bl-sm bg-surfaceAlt px-3 py-1.5 text-sm text-text'
                   }
                 >
                   {m.replyTo ? (

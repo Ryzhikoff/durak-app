@@ -423,6 +423,13 @@
     "ratingAfter": "Рейтинг: {{rating}}",
     "backToHome": "На главную",
     "createLobby": "Создать ещё одно лобби",
+    "rematch": {
+      "button": "Ещё партию тем же составом",
+      "submitting": "Создаём лобби...",
+      "toastTitle": "Ребэтч!",
+      "toastBody": "{{nickname}} собрал ещё одну партию",
+      "toastCta": "Перейти"
+    },
     "metricsGroups": {
       "actions": "Действия",
       "cheat": "Жульничество"
@@ -664,6 +671,9 @@
     "CHAT_REACTION_INVALID": "Недопустимая реакция",
     "REACTION_RATE_LIMIT": "Слишком часто",
     "REACTION_INVALID": "Некорректная реакция",
+    "REMATCH_WINDOW_CLOSED": "Прошло слишком много времени. Создайте новое лобби вручную.",
+    "NOT_A_PARTICIPANT": "Вы не участвовали в этой игре",
+    "REMATCH_UNAVAILABLE": "Ребэтч сейчас недоступен",
     "generic": "Что-то пошло не так",
     "boundary": {
       "title": "Что-то пошло не так",

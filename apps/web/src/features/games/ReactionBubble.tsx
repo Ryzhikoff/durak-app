@@ -28,7 +28,7 @@ export function ReactionBubble({
   if (!emoji) return null;
   return (
     <span
-      className={`reaction-bubble pointer-events-none absolute left-1/2 -top-1 z-20 -translate-x-1/2 select-none text-3xl ${className ?? ''}`}
+      className={`reaction-bubble pointer-events-none absolute left-1/2 -top-2 z-20 -translate-x-1/2 select-none text-6xl xl:text-7xl ${className ?? ''}`}
       style={{ animationDuration: `${durationMs}ms` }}
       aria-hidden
       data-testid="reaction-bubble"

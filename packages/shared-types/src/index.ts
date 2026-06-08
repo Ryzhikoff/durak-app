@@ -384,6 +384,22 @@ export interface SameCompositionResponse {
   total: number;
 }
 
+/**
+ * Rematch — response of `POST /games/:id/rematch`. Backend creates a fresh
+ * lobby with the same settings as the reference game; the creator is the
+ * first member, other participants receive an invite via WS.
+ */
+export interface RematchResponse {
+  lobbyId: string;
+}
+
+/**
+ * Window (minutes) after a game finishes during which participants may still
+ * trigger a rematch. After that, the UI hides the rematch CTA and the backend
+ * returns `REMATCH_WINDOW_CLOSED` if a stale client tries anyway.
+ */
+export const REMATCH_WINDOW_MINUTES = 30;
+
 // ---------- Active live games (spectator mode) ----------
 
 /**
@@ -546,9 +562,29 @@ export const LOBBY_EVENTS = {
   added: 'lobbies:added',
   updated: 'lobbies:updated',
   removed: 'lobbies:removed',
+  /**
+   * Server -> Client (per-user). Fired when a finished-game participant calls
+   * `POST /games/:id/rematch`: every OTHER participant who is currently online
+   * on the `/lobbies` namespace receives this. The UI shows a toast with a
+   * "join" link. Misses are tolerated (player offline at the moment) — the
+   * rematch lobby is still in the list and shareable via URL.
+   */
+  rematchInvite: 'lobby:rematch_invite',
 } as const;
 
 export type LobbyEventName = (typeof LOBBY_EVENTS)[keyof typeof LOBBY_EVENTS];
+
+/**
+ * Payload of {@link LOBBY_EVENTS.rematchInvite}. Carries the inviter's
+ * identity + both ids so the client can route directly to the new lobby and
+ * cross-reference the source game if needed.
+ */
+export interface LobbyRematchInvitePayload {
+  fromUserId: string;
+  fromNickname: string;
+  originalGameId: string;
+  newLobbyId: string;
+}
 
 // ---------- Live games (Phase 5) ----------
 

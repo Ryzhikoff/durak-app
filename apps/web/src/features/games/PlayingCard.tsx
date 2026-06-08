@@ -6,12 +6,13 @@ export type CardSize = 'xs' | 'sm' | 'md' | 'lg';
 const SIZE_CLASS: Record<CardSize, string> = {
   xs: 'w-8 h-12 text-[10px]',
   sm: 'w-10 h-14 text-xs',
-  // md cards bump up noticeably from xl so the desktop felt can breathe and
-  // table entries read at a glance. Tracks the player-hand sizing below.
-  md: 'w-14 h-20 text-sm xl:w-20 xl:h-28 xl:text-base',
+  // md cards bump up noticeably from xl / 2xl so the desktop felt can breathe
+  // and table entries / hand cards read at a glance. Tracks the player-hand
+  // sizing below.
+  md: 'w-14 h-20 text-sm xl:w-24 xl:h-36 xl:text-lg 2xl:w-28 2xl:h-40 2xl:text-xl',
   // lg used by the drag overlay — keep it a touch bigger than xl-md so the
   // floating preview pops above the source card visually.
-  lg: 'w-20 h-28 text-base xl:w-24 xl:h-36 xl:text-lg',
+  lg: 'w-20 h-28 text-base xl:w-28 xl:h-40 xl:text-xl 2xl:w-32 2xl:h-44 2xl:text-2xl',
 };
 
 const RANK_LABEL: Record<number, string> = {

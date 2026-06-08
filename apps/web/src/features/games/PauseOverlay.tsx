@@ -13,7 +13,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, Button } from '@/components/ui';
+import { Button } from '@/components/ui';
 import { getApiErrorMessage } from '@/lib/api';
 import type { ClientGamePlayer, ClientGameState, PauseInfo, PauseVote } from './types';
 
@@ -92,84 +92,73 @@ export function PauseOverlay({
 
   return (
     <div
-      className="sticky top-2 z-40 flex flex-col gap-2 rounded-lg border border-warning bg-warning/10 p-3 text-sm shadow-md"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-warning/60 bg-warning/10 px-2 py-1 text-xs"
       data-testid="pause-overlay"
       role="status"
       aria-live="polite"
     >
-      <div className="flex items-center gap-2">
-        <span className="font-semibold text-warning">
-          {pauseInfo.voteOpen
-            ? t('game.pause.voteTitle')
-            : t('game.pause.title')}
-        </span>
-        <span className="text-textMuted" data-testid="pause-countdown">
-          {t('game.pause.timeLeft', { seconds: remainingSec })}
-        </span>
-      </div>
-      <p className="text-text">
+      <span className="font-semibold text-warning">
+        {pauseInfo.voteOpen
+          ? t('game.pause.voteTitle')
+          : t('game.pause.title')}
+      </span>
+      <span className="text-textMuted" data-testid="pause-countdown">
+        {t('game.pause.timeLeft', { seconds: remainingSec })}
+      </span>
+      <span className="text-text">
         {t('game.pause.waitingFor', {
           nicknames: disconnectedNicknames.join(', '),
         })}
-      </p>
+      </span>
 
       {pauseInfo.voteOpen ? (
-        <div className="flex flex-col gap-2">
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant={myVote === 'wait_more' ? 'primary' : 'secondary'}
-              size="sm"
-              onClick={() => void submit('wait_more')}
-              disabled={!canVote || isSubmitting}
-              data-testid="pause-vote-wait"
-              aria-pressed={myVote === 'wait_more'}
-            >
-              {t('game.pause.vote.waitMore')}
-            </Button>
-            <Button
-              variant={myVote === 'concede' ? 'danger' : 'secondary'}
-              size="sm"
-              onClick={() => void submit('concede')}
-              disabled={!canVote || isSubmitting}
-              data-testid="pause-vote-concede"
-              aria-pressed={myVote === 'concede'}
-            >
-              {t('game.pause.vote.concede')}
-            </Button>
-          </div>
-          <ul
-            className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-textMuted"
-            data-testid="pause-vote-tally"
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Button
+            variant={myVote === 'wait_more' ? 'primary' : 'secondary'}
+            size="sm"
+            onClick={() => void submit('wait_more')}
+            disabled={!canVote || isSubmitting}
+            data-testid="pause-vote-wait"
+            aria-pressed={myVote === 'wait_more'}
+            className="!h-6 !px-2 !text-[11px]"
           >
-            {voters.map((v) => {
-              const cast = pauseInfo.votes[v.id];
-              return (
-                <li
-                  key={v.id}
-                  className="flex items-center gap-1"
-                  data-testid={`pause-vote-tally-${v.id}`}
-                >
-                  <span>{v.nickname}</span>
-                  <span aria-hidden>·</span>
-                  <span>
-                    {cast === 'wait_more'
-                      ? t('game.pause.vote.waitShort')
-                      : cast === 'concede'
-                        ? t('game.pause.vote.concedeShort')
-                        : t('game.pause.vote.pending')}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
+            {t('game.pause.vote.waitShort')}
+          </Button>
+          <Button
+            variant={myVote === 'concede' ? 'danger' : 'secondary'}
+            size="sm"
+            onClick={() => void submit('concede')}
+            disabled={!canVote || isSubmitting}
+            data-testid="pause-vote-concede"
+            aria-pressed={myVote === 'concede'}
+            className="!h-6 !px-2 !text-[11px]"
+          >
+            {t('game.pause.vote.concedeShort')}
+          </Button>
+          {/* Compact tally — just counts, nicknames suppressed to keep the
+              banner one-line on most viewports. Hover for the breakdown. */}
+          <span
+            className="text-textMuted"
+            data-testid="pause-vote-tally"
+            title={voters
+              .map((v) => {
+                const cast = pauseInfo.votes[v.id];
+                return `${v.nickname}: ${
+                  cast === 'wait_more'
+                    ? t('game.pause.vote.waitShort')
+                    : cast === 'concede'
+                      ? t('game.pause.vote.concedeShort')
+                      : t('game.pause.vote.pending')
+                }`;
+              })
+              .join(' · ')}
+          >
+            ({Object.keys(pauseInfo.votes).length}/{voters.length})
+          </span>
         </div>
       ) : null}
 
-      {voteError ? (
-        <Alert variant="error" className="text-xs">
-          {voteError}
-        </Alert>
-      ) : null}
+      {voteError ? <span className="text-danger">{voteError}</span> : null}
     </div>
   );
 }

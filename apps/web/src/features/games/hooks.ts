@@ -8,7 +8,7 @@
  * the cache; `useGameCommand` provides the imperative outbound channel.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { GAME_EVENTS, PLAYER_REACTION_BUBBLE_TTL_MS } from '@durak/shared-types';
 import { getApiErrorCode } from '@/lib/api';
 import {
@@ -16,6 +16,7 @@ import {
   fetchSameComposition,
   listActiveGames,
   listGames,
+  rematch,
   type FetchGameResponse,
 } from './api';
 import {
@@ -805,4 +806,21 @@ export function useGameReactions(
   );
 
   return { reactions, send };
+}
+
+/**
+ * Rematch — `POST /games/:id/rematch`. On success the response carries the new
+ * `lobbyId`; callers route the user into `/lobbies/{id}`. The hook is a thin
+ * wrapper around TanStack's `useMutation` so consumers get loading state +
+ * error propagation for free.
+ *
+ * Server-side errors that the UI translates via i18n:
+ *  - `ALREADY_IN_LOBBY` (409): user already in a lobby — show "go to lobby".
+ *  - `NOT_A_PARTICIPANT` (403): caller wasn't in the source game.
+ *  - `REMATCH_WINDOW_CLOSED` (400): too long since the source game ended.
+ */
+export function useRematch() {
+  return useMutation({
+    mutationFn: (gameId: string) => rematch(gameId),
+  });
 }

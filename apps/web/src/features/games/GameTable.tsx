@@ -135,7 +135,7 @@ function AttackEntryView({
   // defense card on top can poke a few pixels outside without being clipped.
   const wrap = clsx(
     'relative rounded-lg transition-shadow overflow-visible',
-    'h-20 w-14 sm:h-24 sm:w-16 xl:h-28 xl:w-20',
+    'h-20 w-14 sm:h-24 sm:w-16 xl:h-36 xl:w-24 2xl:h-40 2xl:w-28',
     highlighted
       ? isOver
         ? 'ring-4 ring-accent drop-shadow-[0_0_8px_rgba(96,165,250,0.95)]'

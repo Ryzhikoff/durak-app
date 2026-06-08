@@ -4,10 +4,11 @@ import { GamesModule } from '../games/games.module';
 import { LobbiesController } from './lobbies.controller';
 import { LobbiesGateway } from './lobbies.gateway';
 import { LobbiesService } from './lobbies.service';
+import { RematchController } from './rematch.controller';
 
 @Module({
   imports: [AuthModule, GamesModule],
-  controllers: [LobbiesController],
+  controllers: [LobbiesController, RematchController],
   providers: [LobbiesService, LobbiesGateway],
   exports: [LobbiesService],
 })

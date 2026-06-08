@@ -206,6 +206,27 @@ function GameRoom({
   // via the CSS keyframe. `send(emoji)` round-trips the picker selection.
   const reactionsHook = useGameReactions(gameId);
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
+  // Outside-click + Escape close the reaction picker so the user doesn't have
+  // to tap the trigger again to dismiss it.
+  const reactionPickerRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!reactionPickerOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const root = reactionPickerRef.current;
+      if (root && e.target instanceof Node && !root.contains(e.target)) {
+        setReactionPickerOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setReactionPickerOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [reactionPickerOpen]);
   const onPickReaction = useCallback(
     async (emoji: string) => {
       setReactionPickerOpen(false);
@@ -635,16 +656,31 @@ function GameRoom({
           under it. */}
       <div className="flex w-full items-start gap-3 xl:pr-[22rem] 2xl:pr-[26rem]">
         <div className="flex min-h-0 flex-1 flex-col gap-3" data-testid="game-room">
-          <InfoStrip
-            boutNumber={state.boutNumber}
-            defaultStatus={defaultStatus}
-            discardSize={state.discardSize}
-            cheatingOn={cheatingOn}
-            cheatAttemptsRemaining={mySeat?.cheatAttemptsRemaining ?? 0}
-            unreadChatCount={chat.unreadCount}
-            onOpenSettings={() => setSettingsOpen(true)}
-            onOpenChat={onOpenChat}
-          />
+          {/* Top info row: standard InfoStrip + (when a pause is active) a
+              compact PauseOverlay pill that lives in the same horizontal band
+              so it doesn't push the felt arena down on every reconnect. */}
+          <div className="flex flex-col gap-1.5">
+            <InfoStrip
+              boutNumber={state.boutNumber}
+              defaultStatus={defaultStatus}
+              discardSize={state.discardSize}
+              cheatingOn={cheatingOn}
+              cheatAttemptsRemaining={mySeat?.cheatAttemptsRemaining ?? 0}
+              unreadChatCount={chat.unreadCount}
+              onOpenSettings={() => setSettingsOpen(true)}
+              onOpenChat={onOpenChat}
+            />
+            {pauseInfo ? (
+              <PauseOverlay
+                pauseInfo={pauseInfo}
+                state={state}
+                myUserId={myUserId}
+                myVote={pauseVote.myVote}
+                isSubmitting={pauseVote.isSubmitting}
+                onVote={pauseVote.vote}
+              />
+            ) : null}
+          </div>
 
           {/* Mobile deck-stack — sits between the info-strip and the players
               row so the player can see the deck/trump at a glance on narrow
@@ -681,17 +717,6 @@ function GameRoom({
             >
               {t('game.spectator.banner')}
             </div>
-          ) : null}
-
-          {pauseInfo ? (
-            <PauseOverlay
-              pauseInfo={pauseInfo}
-              state={state}
-              myUserId={myUserId}
-              myVote={pauseVote.myVote}
-              isSubmitting={pauseVote.isSubmitting}
-              onVote={pauseVote.vote}
-            />
           ) : null}
 
           {/* Players row — single horizontal strip, clockwise from viewer.
@@ -746,7 +771,10 @@ function GameRoom({
                 felt-table arena, vertically centred against the table. (The
                 dealer traditionally keeps the deck on the right.) The mobile
                 variant lives above this block (see the strip wrap). */}
-            <div className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 xl:block">
+            {/* Anchored to the bottom-right corner of the felt so it doesn't
+                collide with the right-most opponent's chip in the radial
+                layout (which lands around mid-right, ~40-50% of height). */}
+            <div className="pointer-events-none absolute bottom-4 right-2 hidden xl:block">
               <div className="pointer-events-auto">
                 <DeckStack
                   deckSize={state.deckSize}
@@ -757,21 +785,6 @@ function GameRoom({
               </div>
             </div>
           </div>
-
-          {!isSpectator ? (
-            <ActionBar
-              showTake={showTake}
-              showPass={showPass}
-              passLabelKey={
-                status === 'bout_take_pending'
-                  ? 'game.actions.passTake'
-                  : 'game.actions.pass'
-              }
-              onTake={onTake}
-              onPass={onPass}
-              disabled={sending}
-            />
-          ) : null}
 
           <GameStatusBar
             unseenEvents={unseenEvents}
@@ -786,8 +799,11 @@ function GameRoom({
               emoji floats over the cards rather than next to the nickname.
               Spectators see neither (no hand, no reactions). */}
           {!isSpectator ? (
-            <div className="relative flex w-full items-end gap-2">
-              <div className="relative flex-1">
+            <div
+              className="relative mx-auto flex w-fit max-w-full items-end gap-3"
+              data-testid="player-zone"
+            >
+              <div className="relative">
                 <div className="pointer-events-none absolute inset-x-0 -top-2 flex justify-center">
                   <ReactionBubble
                     key={myReaction?.timestamp ?? 'none'}
@@ -801,8 +817,27 @@ function GameRoom({
                 />
               </div>
 
-              {/* Floating circular reaction button next to the hand. */}
-              <div className="relative shrink-0 self-end pb-2">
+              {/* Floating side controls next to the hand: Беру / Бито pill
+                  + circular reaction button. Keeping them in the same
+                  shrink-0 column means the hand width stays stable when
+                  the action buttons appear/disappear — no more "стол
+                  съезжает вниз" effect when a Беру/Бито pops in. */}
+              <div
+                ref={reactionPickerRef}
+                className="relative flex shrink-0 flex-col items-end gap-2 self-end pb-2"
+              >
+                <ActionBar
+                  showTake={showTake}
+                  showPass={showPass}
+                  passLabelKey={
+                    status === 'bout_take_pending'
+                      ? 'game.actions.passTake'
+                      : 'game.actions.pass'
+                  }
+                  onTake={onTake}
+                  onPass={onPass}
+                  disabled={sending}
+                />
                 <button
                   type="button"
                   onClick={() => setReactionPickerOpen((v) => !v)}

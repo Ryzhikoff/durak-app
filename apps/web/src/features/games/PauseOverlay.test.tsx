@@ -115,10 +115,14 @@ describe('PauseOverlay smoke', () => {
     );
     expect(screen.getByTestId('pause-vote-wait')).toBeInTheDocument();
     expect(screen.getByTestId('pause-vote-concede')).toBeInTheDocument();
-    // Tally row lists the two active voters (Me + Opponent), not the ghost.
-    expect(screen.getByTestId('pause-vote-tally-u-me')).toBeInTheDocument();
-    expect(screen.getByTestId('pause-vote-tally-u-opp')).toBeInTheDocument();
-    expect(screen.queryByTestId('pause-vote-tally-u-ghost')).toBeNull();
+    // Compact tally now shows a single (cast/total) badge — 0/2 in this state
+    // with two eligible voters (Me + Opponent) and no votes yet. Per-voter
+    // breakdown is exposed via the `title` attribute for hover/screen-readers.
+    const tally = screen.getByTestId('pause-vote-tally');
+    expect(tally).toHaveTextContent('(0/2)');
+    expect(tally.getAttribute('title')).toContain('Me');
+    expect(tally.getAttribute('title')).toContain('Opponent');
+    expect(tally.getAttribute('title') ?? '').not.toContain('Ghost');
     fireEvent.click(screen.getByTestId('pause-vote-wait'));
     expect(onVote).toHaveBeenCalledWith('wait_more');
   });

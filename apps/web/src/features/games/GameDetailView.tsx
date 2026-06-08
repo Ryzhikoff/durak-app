@@ -13,7 +13,7 @@
  * screens; the podium becomes a 3-column row of medals.
  */
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { ChevronDown, Crown, Trophy } from 'lucide-react';
@@ -25,11 +25,12 @@ import type {
   GameSummary,
   LobbySettings,
 } from '@durak/shared-types';
+import { REMATCH_WINDOW_MINUTES } from '@durak/shared-types';
 import { Alert, Button, Card, Spinner } from '@/components/ui';
 import { Avatar } from '@/components/Avatar';
-import { getApiErrorMessage } from '@/lib/api';
+import { getApiErrorCode, getApiErrorMessage } from '@/lib/api';
 import { useAuthStore } from '@/stores/auth.store';
-import { useSameComposition } from './hooks';
+import { useRematch, useSameComposition } from './hooks';
 
 /** All metric keys we expose in the metrics breakdown. */
 const METRIC_KEYS = [
@@ -635,24 +636,74 @@ function FooterCta({ detail, t }: SectionProps) {
   // "Create another lobby" only makes sense for someone who actually played
   // this game — surfacing it for spectators / random viewers would be noise.
   const myUserId = useAuthStore((s) => s.user?.id);
+  const navigate = useNavigate();
   const isParticipant = myUserId
     ? detail.participants.some((p) => p.userId === myUserId)
     : false;
   const recent = isRecent(detail.finishedAt);
+  // "Rematch" stays available for the longer REMATCH_WINDOW_MINUTES window so
+  // a participant who navigates back to the recap a few minutes later can
+  // still trigger one without having to manually rebuild the lobby.
+  const rematchOpen = isWithinRematchWindow(detail.finishedAt);
+  const rematch = useRematch();
+  const [rematchError, setRematchError] = useState<string | null>(null);
+
+  const onRematch = async () => {
+    setRematchError(null);
+    try {
+      const { lobbyId } = await rematch.mutateAsync(detail.id);
+      navigate(`/lobbies/${lobbyId}`);
+    } catch (err) {
+      const code = getApiErrorCode(err);
+      // Friendly fallback when the user is already in a lobby — route them
+      // there instead of dead-ending on an error toast.
+      if (code === 'ALREADY_IN_LOBBY') {
+        const ax = err as {
+          response?: { data?: { error?: { details?: { currentLobbyId?: string } } } };
+        };
+        const currentLobbyId = ax.response?.data?.error?.details?.currentLobbyId;
+        if (currentLobbyId) {
+          navigate(`/lobbies/${currentLobbyId}`);
+          return;
+        }
+      }
+      setRematchError(
+        code
+          ? t(`errors.${code}`, { defaultValue: getApiErrorMessage(err, t('errors.generic')) })
+          : getApiErrorMessage(err, t('errors.generic')),
+      );
+    }
+  };
+
   return (
-    <div className="flex flex-col gap-2 sm:flex-row">
-      <Link to="/" className="flex-1">
-        <Button block variant="secondary">
-          {t('gameDetail.backToHome')}
-        </Button>
-      </Link>
-      {recent && isParticipant ? (
+    <div className="flex flex-col gap-2">
+      {rematchError ? <Alert variant="error">{rematchError}</Alert> : null}
+      <div className="flex flex-col gap-2 sm:flex-row">
         <Link to="/" className="flex-1">
-          <Button block variant="primary">
-            {t('gameDetail.createLobby')}
+          <Button block variant="secondary">
+            {t('gameDetail.backToHome')}
           </Button>
         </Link>
-      ) : null}
+        {rematchOpen && isParticipant ? (
+          <Button
+            block
+            variant="primary"
+            onClick={onRematch}
+            disabled={rematch.isPending}
+            data-testid="rematch-button"
+          >
+            {rematch.isPending
+              ? t('gameDetail.rematch.submitting')
+              : t('gameDetail.rematch.button')}
+          </Button>
+        ) : recent && isParticipant ? (
+          <Link to="/" className="flex-1">
+            <Button block variant="primary">
+              {t('gameDetail.createLobby')}
+            </Button>
+          </Link>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -662,6 +713,13 @@ function isRecent(iso: string): boolean {
   const finished = new Date(iso).getTime();
   if (!Number.isFinite(finished)) return false;
   return Date.now() - finished < 5 * 60 * 1000;
+}
+
+/** Backend will accept rematch within this window — keep the CTA in sync. */
+function isWithinRematchWindow(iso: string): boolean {
+  const finished = new Date(iso).getTime();
+  if (!Number.isFinite(finished)) return false;
+  return Date.now() - finished < REMATCH_WINDOW_MINUTES * 60 * 1000;
 }
 
 // Expose for tests so they can validate the metric key list. Keeping this on

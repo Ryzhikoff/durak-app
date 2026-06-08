@@ -5,6 +5,7 @@ import type {
   GameListQuery,
   GameListResponse,
   PauseInfo,
+  RematchResponse,
   SameCompositionResponse,
 } from '@durak/shared-types';
 import type { ClientGameState } from './types';
@@ -66,5 +67,16 @@ export async function fetchSameComposition(
     `/games/${id}/same-composition`,
     { params: limit ? { limit } : undefined },
   );
+  return res.data;
+}
+
+/**
+ * Rematch — spin up a fresh lobby with the same settings as the finished game.
+ * Backend pushes a `lobby:rematch_invite` WS event to every OTHER participant.
+ * The caller's response carries `{ lobbyId }` so the UI can navigate straight
+ * into the new lobby.
+ */
+export async function rematch(gameId: string): Promise<RematchResponse> {
+  const res = await api.post<RematchResponse>(`/games/${gameId}/rematch`);
   return res.data;
 }
