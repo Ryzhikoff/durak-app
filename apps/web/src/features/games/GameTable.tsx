@@ -1,9 +1,14 @@
+import { useLayoutEffect, useRef } from 'react';
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 import { useDroppable } from '@dnd-kit/core';
 import { Flag } from 'lucide-react';
 import { PlayingCard } from './PlayingCard';
 import type { AttackEntry } from '@durak/game-engine';
+import {
+  useCardThrowAnimation,
+  type CardThrowAnimationApi,
+} from './useCardThrowAnimation';
 
 export const TABLE_DROP_ID = 'game-table';
 export const ATTACK_DROP_ID_PREFIX = 'attack:';
@@ -13,6 +18,13 @@ export const attackDropId = (attackId: string): string =>
 
 interface GameTableProps {
   attacks: AttackEntry[];
+  /**
+   * Engine id of the current defender — used to attribute "beat" animations
+   * to the right seat (the engine doesn't persist `defenderId` on
+   * `AttackEntry.beatenBy`, but the role doesn't rotate mid-bout so the
+   * snapshot's `currentDefenderId` is the right source).
+   */
+  currentDefenderId: string;
   /** Whether the table itself accepts drops right now (centre zone). */
   centerActive: boolean;
   /**
@@ -51,6 +63,7 @@ interface GameTableProps {
  */
 export function GameTable({
   attacks,
+  currentDefenderId,
   centerActive,
   highlightedAttackIds,
   droppableAttackIds,
@@ -63,6 +76,11 @@ export function GameTable({
     data: { kind: 'table-center' },
     disabled: !centerActive,
   });
+
+  // Throw-the-card animation API. Each AttackEntryView registers its attack
+  // card slot (and, when present, its beat overlay) so the hook can fly the
+  // freshly-mounted card from the throwing player's seat to the slot.
+  const throwAnim = useCardThrowAnimation(attacks, currentDefenderId);
 
   return (
     <div
@@ -93,11 +111,13 @@ export function GameTable({
           <AttackEntryView
             key={entry.id}
             entry={entry}
+            currentDefenderId={currentDefenderId}
             highlighted={isHighlighted}
             droppable={isDroppable}
             canNoticeAttack={canNoticeAttack}
             canNoticeBeat={canNoticeBeat}
             onNoticeCheat={onNoticeCheat}
+            throwAnim={throwAnim}
           />
         );
       })}
@@ -107,20 +127,25 @@ export function GameTable({
 
 interface AttackEntryViewProps {
   entry: AttackEntry;
+  /** Snapshot's current defender — see GameTableProps for rationale. */
+  currentDefenderId: string;
   highlighted: boolean;
   droppable: boolean;
   canNoticeAttack: boolean;
   canNoticeBeat: boolean;
   onNoticeCheat?: (attackEntryId: string) => void;
+  throwAnim: CardThrowAnimationApi;
 }
 
 function AttackEntryView({
   entry,
+  currentDefenderId,
   highlighted,
   droppable,
   canNoticeAttack,
   canNoticeBeat,
   onNoticeCheat,
+  throwAnim,
 }: AttackEntryViewProps) {
   const { t } = useTranslation();
   const { setNodeRef, isOver } = useDroppable({
@@ -128,6 +153,28 @@ function AttackEntryView({
     data: { kind: 'attack-entry', attackEntryId: entry.id },
     disabled: !droppable,
   });
+  // Refs to the actual card wrappers — these are the elements we translate
+  // back to the seat for the FLIP-style throw. Layout effect so the
+  // transform lands BEFORE the browser paints the freshly-mounted card.
+  const attackCardRef = useRef<HTMLDivElement | null>(null);
+  const beatCardRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    throwAnim.registerSlot({
+      entryId: entry.id,
+      kind: 'attack',
+      thrownByUserId: entry.attackerId,
+      el: attackCardRef.current,
+    });
+  }, [entry.id, entry.attackerId, throwAnim]);
+  useLayoutEffect(() => {
+    if (entry.beatenBy === null) return;
+    throwAnim.registerSlot({
+      entryId: entry.id,
+      kind: 'beat',
+      thrownByUserId: currentDefenderId,
+      el: beatCardRef.current,
+    });
+  }, [entry.id, entry.beatenBy, currentDefenderId, throwAnim]);
 
   const isBeaten = entry.beatenBy !== null;
   // Wrap sized to the card itself (md = 56x80, sm md = 64x96, xl md = 80x112).
@@ -145,8 +192,9 @@ function AttackEntryView({
 
   return (
     <div ref={setNodeRef} className={wrap} data-testid={`attack-${entry.id}`}>
-      {/* Attack card sits in the wrap. */}
-      <div className="card-attack-anim absolute inset-0">
+      {/* Attack card sits in the wrap. Ref lets the throw-animation hook
+          translate it back to the attacker's seat on mount. */}
+      <div ref={attackCardRef} className="absolute inset-0">
         <PlayingCard
           card={entry.card}
           size="md"
@@ -169,20 +217,26 @@ function AttackEntryView({
          * (its rank + suit) stays clearly visible. 8° was too subtle —
          * the suit on the bottom card disappeared under the overlay. */
         <div
-          className="card-beat-anim absolute left-[14px] top-[2px] z-10"
+          ref={beatCardRef}
+          className="absolute left-[14px] top-[2px] z-10"
           data-testid={`attack-${entry.id}-beaten`}
         >
-          <PlayingCard card={entry.beatenBy} size="md" className="shadow-xl" />
-          {canNoticeBeat && onNoticeCheat ? (
-            <NoticeCheatButton
-              entryId={entry.id}
-              onNoticeCheat={onNoticeCheat}
-              ariaLabel={t('game.cheat.noticeAria')}
-              /* Target the defense card — top-right of the rotated overlay. */
-              position="beat"
-              testId={`notice-cheat-beat-${entry.id}`}
-            />
-          ) : null}
+          {/* Inner wrapper carries the visual 16° tilt so the outer div is
+           * free for the FLIP throw-animation to write its own translate
+           * transform without colliding. */}
+          <div className="relative rotate-[16deg] origin-center">
+            <PlayingCard card={entry.beatenBy} size="md" className="shadow-xl" />
+            {canNoticeBeat && onNoticeCheat ? (
+              <NoticeCheatButton
+                entryId={entry.id}
+                onNoticeCheat={onNoticeCheat}
+                ariaLabel={t('game.cheat.noticeAria')}
+                /* Target the defense card — top-right of the rotated overlay. */
+                position="beat"
+                testId={`notice-cheat-beat-${entry.id}`}
+              />
+            ) : null}
+          </div>
         </div>
       ) : null}
     </div>

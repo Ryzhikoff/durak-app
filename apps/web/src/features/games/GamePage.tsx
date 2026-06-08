@@ -758,6 +758,7 @@ function GameRoom({
           <div className="relative w-full xl:px-16 xl:pt-32 xl:pb-6">
             <GameTable
               attacks={state.table.attacks}
+              currentDefenderId={state.currentDefenderId}
               centerActive={centerActive}
               highlightedAttackIds={highlightedAttackIds}
               droppableAttackIds={droppableAttackIds}
@@ -807,6 +808,13 @@ function GameRoom({
             <div
               className="relative mx-auto flex w-fit max-w-full items-end gap-3"
               data-testid="player-zone"
+              // The throw-card animation looks up the source seat for every
+              // attacker via `[data-player-id="<id>"]`. The viewer themself
+              // has no PlayerChip on desktop (xl+) — only their hand strip —
+              // so we tag the hand zone with the viewer's id so their own
+              // attacks/beats fly from the hand instead of falling back to
+              // "no source seat → skip animation".
+              data-player-id={myUserId || undefined}
             >
               <div className="relative">
                 <div className="pointer-events-none absolute inset-x-0 -top-2 flex justify-center">
