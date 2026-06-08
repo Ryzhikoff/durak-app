@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, Search, ShieldCheck } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Images, Plus, Search, ShieldCheck, Sliders } from 'lucide-react';
 import { Alert, Button, Card, Input, Modal, Spinner } from '@/components/ui';
 import { useAdminUsers, useDeleteUser, useUpdateUser } from './hooks';
 import { CreateUserModal } from './CreateUserModal';
@@ -20,6 +21,7 @@ interface DeleteTarget {
 
 export function AdminUsersPage() {
   const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
   const me = useAuthStore((s) => s.user);
   const [search, setSearch] = useState('');
   const debounced = useDebounced(search, 300);
@@ -92,10 +94,26 @@ export function AdminUsersPage() {
     <div className="flex flex-col gap-4">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 className="text-2xl font-bold">{t('admin.usersTitle')}</h1>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4" />
-          {t('admin.createUser')}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="secondary"
+            onClick={() => navigate('/admin/rating-config')}
+          >
+            <Sliders className="h-4 w-4" />
+            {t('nav.adminRatingConfig')}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => navigate('/admin/face-cards')}
+          >
+            <Images className="h-4 w-4" />
+            {t('nav.adminFaceCards')}
+          </Button>
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4" />
+            {t('admin.createUser')}
+          </Button>
+        </div>
       </div>
 
       <div className="relative">
