@@ -13,8 +13,11 @@ interface DeckStackProps {
   trumpCard: PlayingCardType | null;
   trumpSuit: Suit | null;
   /**
-   * Compact mobile mode — smaller card sizes + tighter offsets so the stack
-   * fits horizontally above the table on narrow screens.
+   * Compact mobile mode — kept on the props for API compatibility, though the
+   * card size is now fully responsive (see `RESPONSIVE_VARS` below) and matches
+   * the player-hand `PlayingCard` md sizing on every breakpoint. The variant
+   * only affects the parent layout slot (mobile sits in the strip, desktop is
+   * pinned to the felt edge).
    */
   variant?: 'desktop' | 'mobile';
   className?: string;
@@ -47,6 +50,38 @@ function visibleStackSize(deckSize: number): number {
 }
 
 /**
+ * CSS variables driving every absolute-positioned dimension inside the stack.
+ * The pixel values are kept in lock-step with the `md` size in `PlayingCard`
+ * (`w-14 h-20 xl:w-24 xl:h-36 2xl:w-28 2xl:h-40`) so a face-down back rendered
+ * here is the exact same physical size as a card sitting in the player's hand
+ * or on the felt. Step grows slightly on bigger viewports so the deck looks
+ * "thicker" at desktop scale.
+ *
+ * We use CSS vars (not raw Tailwind w-/h- classes) because the stack and the
+ * rotated trump card need their sizes inside `style.calc(...)` expressions —
+ * Tailwind classes alone don't compose into arithmetic.
+ */
+const RESPONSIVE_VARS = [
+  // Card size matches PlayingCard `md` exactly: 14×20 → 24×36 → 28×40 rem-units.
+  '[--deck-card-w:3.5rem]', // 56px (w-14)
+  '[--deck-card-h:5rem]', //   80px (h-20)
+  '[--deck-step:2px]',
+  'xl:[--deck-card-w:6rem]', // 96px (w-24)
+  'xl:[--deck-card-h:9rem]', // 144px (h-36)
+  'xl:[--deck-step:3px]',
+  '2xl:[--deck-card-w:7rem]', // 112px (w-28)
+  '2xl:[--deck-card-h:10rem]', // 160px (h-40)
+  '2xl:[--deck-step:4px]',
+].join(' ');
+
+/** Shorthand for inline `calc()` against the card-size vars. */
+const CW = 'var(--deck-card-w)';
+const CH = 'var(--deck-card-h)';
+const STEP = 'var(--deck-step)';
+/** 55% of cardW — how far the rotated trump card pokes out from under the stack. */
+const TRUMP_OVERHANG = `calc(${CW} * 0.55)`;
+
+/**
  * Communal-deck visual: a small stack of face-down card backs with the trump
  * card laid perpendicular beneath/behind it (the classic Durak deal layout).
  *
@@ -68,43 +103,31 @@ export function DeckStack({
   const visible = useMemo(() => visibleStackSize(deckSize), [deckSize]);
   const isEmpty = deckSize <= 0;
 
-  // Per-variant sizing. Numbers chosen so the trump card (rotated 90°) tucks
-  // cleanly under the stack with a small overhang on the side — visually
-  // matching the way a deck is dealt with the trump turned sideways at the
-  // bottom of the pile.
-  const dims = variant === 'desktop'
-    ? {
-        cardW: 56, // matches PlayingCard md base (mobile-ish since the deck
-        cardH: 80, //   sits in a side slot, not the player's hand)
-        stepX: 2,
-        stepY: 2,
-        backSize: 'md' as const,
-        trumpSize: 'md' as const,
-      }
-    : {
-        cardW: 40,
-        cardH: 56,
-        stepX: 2,
-        stepY: 2,
-        backSize: 'sm' as const,
-        trumpSize: 'sm' as const,
-      };
-
-  // The trump card lies horizontally and pokes out from beneath the bottom of
-  // the stack. We allocate enough box height to fit both. With visible=0 the
-  // stack collapses to zero height so the trump card sits on its own.
-  const stackBoxW = visible > 0 ? dims.cardW + dims.stepX * (visible - 1) : 0;
-  const stackBoxH = visible > 0 ? dims.cardH + dims.stepY * (visible - 1) : 0;
-  // Rotated card occupies cardH (width) x cardW (height) after rotation; we
-  // overlap roughly half of it under the stack so it visibly emerges below.
-  const rotatedW = dims.cardH;
-  const rotatedH = dims.cardW;
-  const trumpOverhang = Math.round(rotatedH * 0.55);
-  // The wrapping box has to hold the stack + the protruding part of the trump.
-  // When the stack is empty the trump card alone defines the box size.
-  const boxW = Math.max(stackBoxW, rotatedW);
+  // Express every box dimension as a CSS `calc()` against the responsive vars.
+  // `visible - 1` is clamped to 0 so an empty stack collapses cleanly.
+  const stackBoxW =
+    visible > 0 ? `calc(${CW} + ${STEP} * ${visible - 1})` : '0px';
+  const stackBoxH =
+    visible > 0 ? `calc(${CH} + ${STEP} * ${visible - 1})` : '0px';
+  // After rotate(90deg) the trump card's bounding box swaps W/H.
+  const rotatedW = CH;
+  const rotatedH = CW;
+  // The wrapping box must cover both the stack and the protruding trump tail.
+  // CSS max() handles the case where the rotated trump is wider than the stack.
+  const boxW = visible > 0 ? `max(${stackBoxW}, ${rotatedW})` : rotatedW;
   const boxH =
-    visible > 0 ? stackBoxH + (rotatedH - trumpOverhang) : rotatedH;
+    visible > 0
+      ? `calc(${stackBoxH} + ${rotatedH} - ${TRUMP_OVERHANG})`
+      : rotatedH;
+  // Top offset for the trump card: tucked under the bottom of the stack, or
+  // pinned to the top when the stack is empty.
+  const trumpTop =
+    visible > 0 ? `calc(${stackBoxH} - ${TRUMP_OVERHANG})` : '0px';
+  // Suit-glyph badge sits roughly mid-protrusion when the stack still exists.
+  const glyphTop =
+    visible > 0
+      ? `calc(${stackBoxH} - ${TRUMP_OVERHANG} / 2)`
+      : '0px';
 
   const ariaLabel = isEmpty
     ? t('game.deck.empty')
@@ -114,9 +137,11 @@ export function DeckStack({
     <div
       className={clsx(
         'flex flex-col items-center gap-1 select-none',
+        RESPONSIVE_VARS,
         className,
       )}
       data-testid="deck-stack"
+      data-variant={variant}
       aria-label={t('game.deck.title')}
       role="group"
     >
@@ -136,27 +161,28 @@ export function DeckStack({
               isEmpty ? 'opacity-40' : 'opacity-100',
             )}
             style={{
-              // With an empty deck the trump sits at the top of the box;
-              // otherwise it tucks under the stack with `trumpOverhang` of
-              // overlap so the rotated card visibly emerges below.
-              top: visible > 0 ? stackBoxH - trumpOverhang : 0,
+              top: trumpTop,
               width: rotatedW,
               height: rotatedH,
             }}
             data-testid="deck-trump-card"
           >
+            {/* Inner div is the un-rotated card; we rotate it 90deg around its
+                centre. Width/height here are the card's natural (pre-rotation)
+                dimensions — PlayingCard's responsive `md` classes draw the
+                actual face. */}
             <div
               className="origin-center"
               style={{
                 transform: 'rotate(90deg)',
-                width: dims.cardW,
-                height: dims.cardH,
+                width: CW,
+                height: CH,
                 position: 'absolute',
-                left: (rotatedW - dims.cardW) / 2,
-                top: (rotatedH - dims.cardH) / 2,
+                left: `calc((${rotatedW} - ${CW}) / 2)`,
+                top: `calc((${rotatedH} - ${CH}) / 2)`,
               }}
             >
-              <PlayingCard card={trumpCard} size={dims.trumpSize} />
+              <PlayingCard card={trumpCard} size="md" />
             </div>
           </div>
         ) : trumpSuit ? (
@@ -169,10 +195,7 @@ export function DeckStack({
               isEmpty ? 'opacity-40' : 'opacity-100',
             )}
             style={{
-              top:
-                visible > 0
-                  ? stackBoxH - Math.round(trumpOverhang / 2)
-                  : 0,
+              top: glyphTop,
               width: 28,
               height: 28,
             }}
@@ -183,8 +206,11 @@ export function DeckStack({
           </div>
         ) : null}
 
-        {/* Face-down stack — staggered by (stepX, stepY) so depth is visible.
-            Rendered after the trump so it draws on top. */}
+        {/* Face-down stack — staggered by --deck-step so depth is visible.
+            Rendered after the trump so it draws on top. Each back is wrapped
+            in a fixed-size box and CardBackDisplay is forced to fill it
+            (`!w-full !h-full`) so the sizing matches the player-hand card
+            on every breakpoint, regardless of CardBackDisplay's own size prop. */}
         <div
           className="absolute left-1/2 top-0 -translate-x-1/2 transition-[height] duration-300"
           style={{ width: stackBoxW, height: stackBoxH }}
@@ -194,12 +220,18 @@ export function DeckStack({
             <div
               key={i}
               className="absolute"
-              style={{ left: i * dims.stepX, top: i * dims.stepY }}
+              style={{
+                left: `calc(${STEP} * ${i})`,
+                top: `calc(${STEP} * ${i})`,
+                width: CW,
+                height: CH,
+              }}
             >
               <CardBackDisplay
                 cardBackId={DECK_CARD_BACK_ID}
                 customCardBackUrl={null}
-                size={dims.backSize}
+                size="md"
+                className="!h-full !w-full"
               />
             </div>
           ))}

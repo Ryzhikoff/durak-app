@@ -87,4 +87,29 @@ describe('DeckStack', () => {
     );
     expect(screen.getByTestId('deck-stack-cards').children.length).toBe(5);
   });
+
+  it('uses responsive card-size CSS vars so backs match PlayingCard md sizing', () => {
+    // Regression: previously the stack hardcoded `cardW=56, cardH=80` so the
+    // deck looked tiny next to the xl/2xl player hand. Now the dimensions are
+    // CSS vars driven by Tailwind arbitrary classes on the root container, in
+    // lock-step with PlayingCard `md` (`w-14 h-20 xl:w-24 xl:h-36 2xl:w-28 2xl:h-40`).
+    renderDeckStack(
+      <DeckStack deckSize={4} trumpCard={TRUMP_CARD} trumpSuit="hearts" />,
+    );
+    const root = screen.getByTestId('deck-stack');
+    // Base (mobile) values.
+    expect(root.className).toMatch(/\[--deck-card-w:3\.5rem\]/);
+    expect(root.className).toMatch(/\[--deck-card-h:5rem\]/);
+    // Desktop (xl) bump — matches PlayingCard md `xl:w-24 xl:h-36`.
+    expect(root.className).toMatch(/xl:\[--deck-card-w:6rem\]/);
+    expect(root.className).toMatch(/xl:\[--deck-card-h:9rem\]/);
+    // 2xl bump — matches PlayingCard md `2xl:w-28 2xl:h-40`.
+    expect(root.className).toMatch(/2xl:\[--deck-card-w:7rem\]/);
+    expect(root.className).toMatch(/2xl:\[--deck-card-h:10rem\]/);
+    // The stack-card boxes use those vars for their inline width/height.
+    const cards = screen.getByTestId('deck-stack-cards');
+    const firstBack = cards.children[0] as HTMLElement;
+    expect(firstBack.style.width).toBe('var(--deck-card-w)');
+    expect(firstBack.style.height).toBe('var(--deck-card-h)');
+  });
 });
