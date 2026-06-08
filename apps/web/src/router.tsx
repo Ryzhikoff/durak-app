@@ -5,6 +5,7 @@ import { ChangePasswordPage } from '@/features/auth/ChangePasswordPage';
 import { AdminSetupPage } from '@/features/admin-setup/AdminSetupPage';
 import { AdminUsersPage } from '@/features/admin/AdminUsersPage';
 import { AdminRatingConfigPage } from '@/features/admin/AdminRatingConfigPage';
+import { AdminFaceCardsPage } from '@/features/admin/AdminFaceCardsPage';
 import { ProfilePage } from '@/features/profile/ProfilePage';
 import { RatingPage } from '@/features/rating/RatingPage';
 import { GamePage } from '@/features/games/GamePage';
@@ -67,6 +68,14 @@ export function AppRouter() {
           element={
             <ProtectedRoute requireAdmin>
               <AdminRatingConfigPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/face-cards"
+          element={
+            <ProtectedRoute requireAdmin>
+              <AdminFaceCardsPage />
             </ProtectedRoute>
           }
         />

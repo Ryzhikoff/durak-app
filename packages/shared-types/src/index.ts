@@ -161,6 +161,33 @@ export interface CardBacksListResponse {
  */
 export const CUSTOM_CARD_BACK_ID = '__custom__';
 
+// ---------- Face cards (admin-uploaded J/Q/K art) ----------
+
+/**
+ * Face-card rank slug used in admin upload URLs and DB rows. Restricted to
+ * the three figure cards — Ace is always rendered as the central suit symbol
+ * and is not configurable.
+ */
+export type FaceCardRank = 'jack' | 'queen' | 'king';
+
+/** Suit type — re-exported here so the frontend doesn't pull engine types. */
+export type FaceCardSuit = 'spades' | 'hearts' | 'diamonds' | 'clubs';
+
+/**
+ * Single (rank, suit) slot. `url` is `null` when no admin has uploaded a
+ * custom image for the slot; the renderer falls back to the default SVG.
+ */
+export interface FaceCardAsset {
+  rank: FaceCardRank;
+  suit: FaceCardSuit;
+  url: string | null;
+}
+
+/** Response of `GET /face-cards` and `GET /admin/face-cards`. */
+export interface FaceCardsResponse {
+  assets: FaceCardAsset[];
+}
+
 // ---------- Rating ----------
 
 export interface RatingEntry {

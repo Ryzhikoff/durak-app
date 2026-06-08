@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-do
 import { useTranslation } from 'react-i18next';
 import {
   ChevronDown,
+  Images,
   LogOut,
   Menu,
   Play,
@@ -155,6 +156,14 @@ export function AppShell() {
                     {t('nav.adminRatingConfig')}
                   </MenuLink>
                 ) : null}
+                {user.isAdmin ? (
+                  <MenuLink
+                    to="/admin/face-cards"
+                    icon={<Images className="h-4 w-4" />}
+                  >
+                    {t('nav.adminFaceCards')}
+                  </MenuLink>
+                ) : null}
                 <button
                   type="button"
                   role="menuitem"
@@ -210,6 +219,12 @@ export function AppShell() {
                 <MobileNavLink
                   to="/admin/rating-config"
                   label={t('nav.adminRatingConfig')}
+                />
+              ) : null}
+              {user.isAdmin ? (
+                <MobileNavLink
+                  to="/admin/face-cards"
+                  label={t('nav.adminFaceCards')}
                 />
               ) : null}
               <Button

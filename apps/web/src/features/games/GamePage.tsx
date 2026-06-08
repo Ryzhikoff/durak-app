@@ -20,6 +20,7 @@ import { getApiErrorMessage } from '@/lib/api';
 import { SocketAckError } from '@/lib/socket';
 import { useAuthStore } from '@/stores/auth.store';
 import {
+  useFaceCardAssets,
   useGame,
   useGameChat,
   useGameCommand,
@@ -64,6 +65,10 @@ import type {
 export function GamePage() {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
+  // Prefetch the global face-card asset map so every PlayingCard in the tree
+  // can read uploaded J/Q/K images straight from the TanStack cache on first
+  // render. Cheap — staleTime is 5 min, the page-shell calls it once.
+  useFaceCardAssets();
   // Phase 7B — the hook now discriminates between live and finished games.
   // We always call it so the rules of hooks are respected; the `id` guard
   // below short-circuits the render path.

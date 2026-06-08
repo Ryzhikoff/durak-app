@@ -38,6 +38,7 @@ model User {
   ratingHistory  RatingHistory[]
   games          GameParticipant[]
   gamesLost      Game[]            @relation("GameLoser")
+  faceCardUploads FaceCardAsset[]
 
   @@index([disabledAt])
 }
@@ -149,6 +150,25 @@ model GameParticipant {
   @@unique([gameId, userId])
   @@index([userId, gameId])
   @@index([userId, place])
+}
+
+/// Admin-uploaded face-card art (Jack/Queen/King × 4 suits = 12 slots). When a
+/// row exists for a (rank, suit) pair, every client renders the uploaded image
+/// instead of the default SVG silhouette. Rows are upserted by admins via the
+/// `/api/admin/face-cards` controller; deleting a row falls back to the SVG.
+model FaceCardAsset {
+  id           String   @id @default(cuid())
+  /// 'jack' | 'queen' | 'king'
+  rank         String
+  /// 'spades' | 'hearts' | 'diamonds' | 'clubs'
+  suit         String
+  /// Relative URL served by nginx, e.g. /uploads/face-cards/jack-spades.webp?v=...
+  url          String
+  updatedAt    DateTime @updatedAt
+  uploadedById String?
+  uploadedBy   User?    @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@unique([rank, suit])
 }
 
 /// Singleton TrueSkill parameters editable from the admin UI. We use a

@@ -11,6 +11,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { AdminSetupModule } from './modules/admin-setup/admin-setup.module';
 import { AdminUsersModule } from './modules/admin-users/admin-users.module';
 import { AdminRatingConfigModule } from './modules/admin-rating-config/admin-rating-config.module';
+import { AdminFaceCardsModule } from './modules/admin-face-cards/admin-face-cards.module';
 import { MeModule } from './modules/me/me.module';
 import { CardBacksModule } from './modules/card-backs/card-backs.module';
 import { RatingModule } from './modules/rating/rating.module';
@@ -61,6 +62,7 @@ import { LobbiesModule } from './modules/lobbies/lobbies.module';
     AdminSetupModule,
     AdminUsersModule,
     AdminRatingConfigModule,
+    AdminFaceCardsModule,
     MeModule,
     CardBacksModule,
     RatingModule,

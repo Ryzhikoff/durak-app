@@ -12,8 +12,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   GAME_EVENTS,
   PLAYER_REACTION_BUBBLE_TTL_MS,
+  type FaceCardAsset,
   type RematchSession,
 } from '@durak/shared-types';
+import { fetchFaceCards } from './faceCardsApi';
 import { getApiErrorCode } from '@/lib/api';
 import {
   acceptRematch,
@@ -60,6 +62,26 @@ import type {
 
 export const GAMES_QUERY_KEY = 'games' as const;
 export const ACTIVE_GAMES_QUERY_KEY = 'active-games' as const;
+/** TanStack Query key for the global face-card asset map (12 slots). */
+export const FACE_CARDS_QUERY_KEY = ['face-cards'] as const;
+
+/**
+ * Face-card asset map shared by every PlayingCard renderer. Returns the
+ * uploaded URL for J/Q/K slots (when present) so the renderer overrides the
+ * default SVG silhouette. Cached aggressively — admins update this rarely,
+ * and the admin mutation explicitly invalidates the key.
+ */
+export function useFaceCardAssets() {
+  return useQuery<FaceCardAsset[]>({
+    queryKey: FACE_CARDS_QUERY_KEY,
+    queryFn: fetchFaceCards,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    // Backend table may be absent (migration not yet deployed) — failing
+    // silently is the safer default; PlayingCard falls back to its SVG.
+    retry: false,
+  });
+}
 /** TanStack Query key for the active rematch session (single per logged-in user). */
 export const REMATCH_SESSION_QUERY_KEY = ['rematch', 'session'] as const;
 
