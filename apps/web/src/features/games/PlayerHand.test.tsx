@@ -151,15 +151,14 @@ describe('PlayerHand', () => {
   });
 
   it('keeps Tailwind responsive overlap mapping in sync with PlayingCard md', () => {
-    // On desktop viewport the felt-table is wide enough that small hands
-    // breathe with an explicit gap (negative overlap). When the hand grows
-    // the formula pulls neighbours closer; here with 4 cards there's plenty
-    // of room so we expect the floor.
+    // On desktop the small-hand floor is 0 — cards sit edge-to-edge. The
+    // formula only pulls neighbours into overlap once the hand outgrows the
+    // available width.
     setViewport(1440); // xl breakpoint
     renderHand(makeHand(4));
     const root = screen.getByTestId('player-hand');
     const overlap = Number(root.dataset.overlap);
-    expect(overlap).toBe(-16);
+    expect(overlap).toBe(0);
   });
 
   it('renders the «Ваш ход» frame + attack badge when viewer is the attacker', () => {

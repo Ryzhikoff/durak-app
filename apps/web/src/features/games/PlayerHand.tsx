@@ -54,11 +54,12 @@ const MIN_VISIBLE_BASE = 24;
 const MIN_VISIBLE_DESKTOP = 28;
 /**
  * Lower bound on overlap. Mobile keeps a tight stacked look because horizontal
- * space is scarce; desktop intentionally goes negative so small hands sit with
- * a clear gap between cards (the felt-table is wide, no reason to crowd them).
+ * space is scarce; desktop sits cards edge-to-edge with zero overlap when the
+ * felt-table has room, then the formula tightens overlap as the hand grows.
+ * The hand never spills past its container width.
  */
 const MIN_OVERLAP_BASE = 12; // matches the legacy -ml-3
-const MIN_OVERLAP_DESKTOP = -16;
+const MIN_OVERLAP_DESKTOP = 0;
 /** Side gutter we leave inside the container so cards don't kiss the screen edge. */
 const SIDE_GUTTER = 12;
 
