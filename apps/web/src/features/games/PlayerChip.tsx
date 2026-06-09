@@ -55,14 +55,18 @@ export function PlayerChip({
   const isActive = isAttacker || isDefender;
   const pulseClass = isActive
     ? isAttacker
-      ? 'player-active-pulse-warning'
-      : 'player-active-pulse'
+      ? 'player-active-pulse-attacker'
+      : 'player-active-pulse-defender'
     : '';
 
+  // Thicker, more distinguishable highlight for the current attacker vs defender.
+  // Attacker — red/orange ring + drop-shadow; defender — cyan ring + drop-shadow.
+  // The colours intentionally clash so role is readable at a glance even on
+  // small mobile chips.
   const borderClass = isAttacker
-    ? 'border-warning ring-2 ring-warning/70'
+    ? 'border-red-500 ring-4 ring-red-500/70 shadow-[0_0_18px_rgba(239,68,68,0.55)]'
     : isDefender
-      ? 'border-accent ring-2 ring-accent/70'
+      ? 'border-cyan-400 ring-4 ring-cyan-400/70 shadow-[0_0_18px_rgba(34,211,238,0.55)]'
       : isMe
         ? 'border-amber-400/60 ring-1 ring-amber-400/40'
         : 'border-border';

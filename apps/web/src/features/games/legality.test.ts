@@ -4,6 +4,7 @@ import {
   canBeatCard,
   canPlayerNoticeEntry,
   canTranslateWith,
+  isExclusiveThrowInLocked,
 } from './legality';
 import type { AttackEntry, Card, ClientGameState, Rank } from './types';
 
@@ -134,6 +135,7 @@ describe('canPlayerNoticeEntry', () => {
     maxPlayers: 4 as const,
     firstBoutLimit: 6 as const,
     attackerScope: 'all' as const,
+    exclusiveThrowIn: false,
     cheatingEnabled: true,
     cheatAttempts: 3,
     cheatNoticeScope: 'all' as const,
@@ -208,6 +210,179 @@ describe('canPlayerNoticeEntry', () => {
     expect(canPlayerNoticeEntry(st, atkEntry('atk'), 'def')).toBe(true);
     expect(canPlayerNoticeEntry(st, atkEntry('atk'), 'other')).toBe(true);
     expect(canPlayerNoticeEntry(st, atkEntry('atk'), 'atk')).toBe(false);
+  });
+});
+
+describe('isExclusiveThrowInLocked', () => {
+  const baseSettings = {
+    maxPlayers: 4 as const,
+    firstBoutLimit: 6 as const,
+    attackerScope: 'all' as const,
+    exclusiveThrowIn: true,
+    cheatingEnabled: false,
+    cheatAttempts: 3,
+    cheatNoticeScope: 'all' as const,
+    layoutOnRepeat: 'random' as const,
+    firstTurn: 'lowest_trump' as const,
+    deckSize: 36 as const,
+    jokers: false,
+    turnTimer: null,
+  };
+  const makeState = (
+    overrides: Partial<ClientGameState> = {},
+  ): ClientGameState => ({
+    id: 'g1',
+    settings: { ...baseSettings },
+    myUserId: 'me',
+    status: 'bout_defense',
+    trumpCard: null,
+    trumpSuit: 'spades',
+    deckSize: 0,
+    discardSize: 0,
+    table: { attacks: [] },
+    boutNumber: 1,
+    loserPlayerId: null,
+    currentAttackerId: 'atk',
+    currentDefenderId: 'def',
+    passedPlayerIds: [],
+    players: [
+      {
+        id: 'atk',
+        nickname: 'Attacker',
+        avatarUrl: null,
+        cardBackId: 'classic-1',
+        customCardBackUrl: null,
+        handSize: 3,
+        isFinished: false,
+        isPassed: false,
+        cheatAttemptsRemaining: 0,
+      },
+      {
+        id: 'def',
+        nickname: 'Defender',
+        avatarUrl: null,
+        cardBackId: 'classic-1',
+        customCardBackUrl: null,
+        handSize: 3,
+        isFinished: false,
+        isPassed: false,
+        cheatAttemptsRemaining: 0,
+      },
+      {
+        id: 'me',
+        nickname: 'Me',
+        avatarUrl: null,
+        cardBackId: 'classic-1',
+        customCardBackUrl: null,
+        handSize: 3,
+        isFinished: false,
+        isPassed: false,
+        cheatAttemptsRemaining: 0,
+      },
+    ],
+    ...overrides,
+  });
+
+  it('returns false when exclusiveThrowIn is off', () => {
+    const st = makeState({ settings: { ...baseSettings, exclusiveThrowIn: false } });
+    expect(isExclusiveThrowInLocked(st, 'me')).toBe(false);
+  });
+
+  it('returns false when viewer IS the primary attacker', () => {
+    const st = makeState({ currentAttackerId: 'me' });
+    expect(isExclusiveThrowInLocked(st, 'me')).toBe(false);
+  });
+
+  it('returns true when primary attacker has not pasted', () => {
+    const st = makeState();
+    expect(isExclusiveThrowInLocked(st, 'me')).toBe(true);
+  });
+
+  it('returns false once the primary attacker pasted', () => {
+    const st = makeState({ passedPlayerIds: ['atk'] });
+    expect(isExclusiveThrowInLocked(st, 'me')).toBe(false);
+  });
+
+  it('returns false when the primary attacker has no cards left', () => {
+    const st = makeState({
+      players: [
+        {
+          id: 'atk',
+          nickname: 'Attacker',
+          avatarUrl: null,
+          cardBackId: 'classic-1',
+          customCardBackUrl: null,
+          handSize: 0,
+          isFinished: false,
+          isPassed: false,
+          cheatAttemptsRemaining: 0,
+        },
+        {
+          id: 'def',
+          nickname: 'Defender',
+          avatarUrl: null,
+          cardBackId: 'classic-1',
+          customCardBackUrl: null,
+          handSize: 3,
+          isFinished: false,
+          isPassed: false,
+          cheatAttemptsRemaining: 0,
+        },
+        {
+          id: 'me',
+          nickname: 'Me',
+          avatarUrl: null,
+          cardBackId: 'classic-1',
+          customCardBackUrl: null,
+          handSize: 3,
+          isFinished: false,
+          isPassed: false,
+          cheatAttemptsRemaining: 0,
+        },
+      ],
+    });
+    expect(isExclusiveThrowInLocked(st, 'me')).toBe(false);
+  });
+
+  it('returns false when the primary attacker is finished', () => {
+    const st = makeState({
+      players: [
+        {
+          id: 'atk',
+          nickname: 'Attacker',
+          avatarUrl: null,
+          cardBackId: 'classic-1',
+          customCardBackUrl: null,
+          handSize: 3,
+          isFinished: true,
+          isPassed: false,
+          cheatAttemptsRemaining: 0,
+        },
+        {
+          id: 'def',
+          nickname: 'Defender',
+          avatarUrl: null,
+          cardBackId: 'classic-1',
+          customCardBackUrl: null,
+          handSize: 3,
+          isFinished: false,
+          isPassed: false,
+          cheatAttemptsRemaining: 0,
+        },
+        {
+          id: 'me',
+          nickname: 'Me',
+          avatarUrl: null,
+          cardBackId: 'classic-1',
+          customCardBackUrl: null,
+          handSize: 3,
+          isFinished: false,
+          isPassed: false,
+          cheatAttemptsRemaining: 0,
+        },
+      ],
+    });
+    expect(isExclusiveThrowInLocked(st, 'me')).toBe(false);
   });
 });
 

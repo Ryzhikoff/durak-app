@@ -92,33 +92,58 @@
 
 /* ---------- Game UI polish: felt table + card animations ---------- */
 
-/* Pulsing ring on the currently-active player chip (attacker/defender). */
-@keyframes player-active-pulse {
+/* Pulsing ring on the currently-active player chip (attacker/defender).
+   Attacker — red glow; defender — cyan glow. Thicker spread (10px) than the
+   previous accent pulse so the highlight reads clearly on small mobile chips
+   too. */
+@keyframes player-active-pulse-attacker {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(96, 165, 250, 0.55);
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
   }
   50% {
-    box-shadow: 0 0 0 6px rgba(96, 165, 250, 0);
+    box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
   }
 }
 
-.player-active-pulse {
-  animation: player-active-pulse 1.8s ease-in-out infinite;
+.player-active-pulse-attacker {
+  animation: player-active-pulse-attacker 1.6s ease-in-out infinite;
 }
 
-@keyframes player-active-pulse-warning {
+@keyframes player-active-pulse-defender {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(234, 179, 8, 0.55);
+    box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.7);
   }
   50% {
-    box-shadow: 0 0 0 6px rgba(234, 179, 8, 0);
+    box-shadow: 0 0 0 10px rgba(34, 211, 238, 0);
   }
 }
 
-.player-active-pulse-warning {
-  animation: player-active-pulse-warning 1.8s ease-in-out infinite;
+.player-active-pulse-defender {
+  animation: player-active-pulse-defender 1.6s ease-in-out infinite;
+}
+
+/* Soft pulsing emerald frame around the viewer's hand when it is their turn
+   (attacker or defender). Uses ring-color + box-shadow opacity so the frame
+   breathes without nudging surrounding layout. */
+@keyframes your-turn-frame-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 4px rgba(52, 211, 153, 0.7),
+      0 0 22px 4px rgba(52, 211, 153, 0.35);
+  }
+  50% {
+    box-shadow:
+      0 0 0 4px rgba(52, 211, 153, 0.4),
+      0 0 12px 2px rgba(52, 211, 153, 0.15);
+  }
+}
+
+.your-turn-frame {
+  animation: your-turn-frame-pulse 1.8s ease-in-out infinite;
+  border-radius: 1rem;
 }
 
 /* Subtle felt-table texture: layered radial gradients on top of the felt fill. */

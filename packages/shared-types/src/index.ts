@@ -607,6 +607,19 @@ export interface LobbySettings {
    */
   firstBoutLimit: 5 | 6 | 'defender_hand';
   attackerScope: 'all' | 'attacker_only';
+  /**
+   * When `true`, only the **primary attacker** (the player who opened the
+   * current bout — or the most recent translator) may throw extra cards
+   * until they explicitly say «бито» (Pass). After their pass the throw-in
+   * window opens to the rest per the normal `attackerScope` rule. When
+   * `false` (default) every eligible thrower can pile in from the very
+   * first throw, preserving legacy behavior.
+   *
+   * Has no effect when `attackerScope === 'attacker_only'` (only the
+   * attacker may throw anyway), but the flag is preserved verbatim and
+   * costs nothing to leave on in that mode.
+   */
+  exclusiveThrowIn: boolean;
   cheatingEnabled: boolean;
   /** 1..10. Ignored when cheatingEnabled === false. */
   cheatAttempts: number;
@@ -627,6 +640,7 @@ export const DEFAULT_LOBBY_SETTINGS: LobbySettings = {
   maxPlayers: 6,
   firstBoutLimit: 5,
   attackerScope: 'all',
+  exclusiveThrowIn: false,
   cheatingEnabled: true,
   cheatAttempts: 1,
   cheatNoticeScope: 'defender_only',

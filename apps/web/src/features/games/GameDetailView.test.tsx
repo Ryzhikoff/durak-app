@@ -62,6 +62,7 @@ const baseDetail: GameDetail = {
     maxPlayers: 3,
     firstBoutLimit: 5,
     attackerScope: 'all',
+    exclusiveThrowIn: false,
     cheatingEnabled: false,
     cheatAttempts: 0,
     cheatNoticeScope: 'defender_only',

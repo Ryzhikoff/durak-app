@@ -169,6 +169,11 @@ export type CommandErrorCode =
   | 'PASS_NOT_ALLOWED'
   | 'ATTACK_LIMIT_REACHED'
   | 'ATTACK_NOT_ALLOWED'
+  /**
+   * `exclusiveThrowIn=true` is on and the primary attacker has not yet
+   * said "бито" — other players can't pile in until the lock releases.
+   */
+  | 'EXCLUSIVE_ATTACKER_NOT_DONE'
   | 'BEAT_NOT_ALLOWED'
   | 'ENTRY_NOT_FOUND'
   | 'ENTRY_ALREADY_BEATEN'

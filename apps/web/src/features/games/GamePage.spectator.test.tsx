@@ -30,6 +30,7 @@ const spectatorState: ClientGameState = {
     maxPlayers: 2,
     firstBoutLimit: 6,
     attackerScope: 'all',
+    exclusiveThrowIn: false,
     cheatingEnabled: false,
     cheatAttempts: 0,
     cheatNoticeScope: 'defender_only',

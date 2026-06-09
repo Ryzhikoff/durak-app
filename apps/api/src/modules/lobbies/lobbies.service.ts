@@ -155,6 +155,12 @@ export function mergeAndValidateSettings(
   if (merged.attackerScope !== 'all' && merged.attackerScope !== 'attacker_only') {
     throw new BadRequestException({ code: 'INVALID_SETTINGS', message: 'invalid attackerScope' });
   }
+  if (typeof merged.exclusiveThrowIn !== 'boolean') {
+    throw new BadRequestException({
+      code: 'INVALID_SETTINGS',
+      message: 'invalid exclusiveThrowIn',
+    });
+  }
   if (typeof merged.cheatingEnabled !== 'boolean') {
     throw new BadRequestException({ code: 'INVALID_SETTINGS', message: 'invalid cheatingEnabled' });
   }

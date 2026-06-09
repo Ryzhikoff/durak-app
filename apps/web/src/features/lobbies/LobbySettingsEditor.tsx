@@ -82,6 +82,18 @@ export function LobbySettingsEditor({
         />
       </Field>
 
+      <Field label={t('lobbySettings.exclusiveThrowIn.label')}>
+        <Toggle
+          checked={value.exclusiveThrowIn}
+          onChange={(v) => set('exclusiveThrowIn', v)}
+          disabled={disabled}
+          srLabel={t('lobbySettings.exclusiveThrowIn.label')}
+        />
+        <p className="mt-1 text-xs text-textMuted">
+          {t('lobbySettings.exclusiveThrowIn.description')}
+        </p>
+      </Field>
+
       <Field label={t('lobbySettings.cheating.label')}>
         <Toggle
           checked={value.cheatingEnabled}

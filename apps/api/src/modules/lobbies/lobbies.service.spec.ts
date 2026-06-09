@@ -176,6 +176,21 @@ describe('mergeAndValidateSettings', () => {
     }
   });
 
+  it('rejects a non-boolean exclusiveThrowIn', () => {
+    expect(() =>
+      mergeAndValidateSettings(DEFAULT_LOBBY_SETTINGS, {
+        exclusiveThrowIn: 'yes' as unknown as boolean,
+      }),
+    ).toThrow(BadRequestException);
+  });
+
+  it('accepts exclusiveThrowIn=true', () => {
+    const out = mergeAndValidateSettings(DEFAULT_LOBBY_SETTINGS, {
+      exclusiveThrowIn: true,
+    });
+    expect(out.exclusiveThrowIn).toBe(true);
+  });
+
   it('rejects unknown nested keys (whitelist)', () => {
     expect(() =>
       mergeAndValidateSettings(DEFAULT_LOBBY_SETTINGS, {

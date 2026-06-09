@@ -109,8 +109,15 @@ function reduceAttack(
     return fail('NOT_YOUR_TURN', 'Finished players cannot act');
   }
 
-  const policy = attackPolicyFor(state.settings.attackerScope);
-  if (!policy.canThrow(state, player.id)) {
+  const policy = attackPolicyFor(state.settings.attackerScope, state.settings.exclusiveThrowIn);
+  const check = policy.checkThrow(state, player.id);
+  if (!check.ok) {
+    if (check.reason === 'EXCLUSIVE_LOCK') {
+      return fail(
+        'EXCLUSIVE_ATTACKER_NOT_DONE',
+        'Wait until the primary attacker says "бито"',
+      );
+    }
     return fail('NOT_YOUR_TURN', 'You may not throw cards right now');
   }
   if (
@@ -421,8 +428,20 @@ function reducePass(
     return fail('PASS_NOT_ALLOWED', 'Cannot say "бито" right now');
   }
   // Defender is not a thrower; their "pass" is meaningless here.
-  const policy = attackPolicyFor(state.settings.attackerScope);
-  if (!policy.canThrow(state, player.id)) {
+  //
+  // For the per-player check we use the BASE policy (no exclusive lock):
+  // a non-primary thrower must still be able to say "бито" once the lock
+  // is released. The exclusive lock only gates the *attack* command itself;
+  // it never prevents anyone from acknowledging the bout.
+  //
+  // For the eligibility roster (who must vote before the bout closes) we
+  // also use the base policy — otherwise an `exclusiveThrowIn=true` bout
+  // would close as soon as the primary attacker pasted, even though the
+  // rest of the table now has a window to pile in (which is the entire
+  // point of the setting: primary goes first, *then* the others get a
+  // chance).
+  const basePolicy = attackPolicyFor(state.settings.attackerScope, false);
+  if (!basePolicy.canThrow(state, player.id)) {
     return fail('PASS_NOT_ALLOWED', 'You are not allowed to throw cards anyway');
   }
   if (state.passedPlayerIds.includes(player.id)) {
@@ -448,7 +467,7 @@ function reducePass(
       !state.finishedPlayers.includes(p.id) &&
       p.id !== state.players[state.currentDefenderIndex].id &&
       p.hand.length > 0 &&
-      policy.canThrow(state, p.id),
+      basePolicy.canThrow(state, p.id),
   );
   const allPassed = eligible.every((p) => next.passedPlayerIds.includes(p.id));
   if (allPassed) {

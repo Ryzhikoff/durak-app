@@ -223,6 +223,9 @@
       "takePending": "{{nickname}} берёт — можно подкинуть",
       "over": "Партия окончена"
     },
+    "yourTurn": "Ваш ход",
+    "yourTurnAttack": "Ваш ход — нападайте",
+    "yourTurnDefend": "Ваш ход — отбивайтесь",
     "actions": {
       "take": "Беру",
       "pass": "Бито",
@@ -237,6 +240,7 @@
       "cantAttack": "Эту карту нельзя подкинуть",
       "alreadyBeaten": "Эта атака уже побита"
     },
+    "exclusiveThrowInWait": "Сейчас подкидывает {{nickname}}",
     "opponent": {
       "passed": "сказал бито",
       "cardsCount_one": "{{count}} карта",
@@ -304,6 +308,7 @@
       "PASS_NOT_ALLOWED": "Сказать бито сейчас нельзя",
       "ATTACK_LIMIT_REACHED": "Лимит карт в раздаче достигнут",
       "ATTACK_NOT_ALLOWED": "Подкинуть сейчас нельзя",
+      "EXCLUSIVE_ATTACKER_NOT_DONE": "Сейчас подкидывает первый атакующий — подождите",
       "BEAT_NOT_ALLOWED": "Бить сейчас нельзя",
       "ENTRY_NOT_FOUND": "Атака не найдена",
       "ENTRY_ALREADY_BEATEN": "Эта атака уже побита",
@@ -621,6 +626,10 @@
       "all": "Все",
       "attackerOnly": "Только атакующий и переводящий"
     },
+    "exclusiveThrowIn": {
+      "label": "Эксклюзивный подкид",
+      "description": "Пока первый атакующий не скажет «бито», остальные не могут подкидывать."
+    },
     "cheating": {
       "label": "Мухляж разрешён"
     },
@@ -720,6 +729,7 @@
     "REMATCH_RACE": "Не удалось согласовать реванш — попробуйте ещё раз",
     "NOT_A_PARTICIPANT": "Вы не участвовали в этой игре",
     "REMATCH_UNAVAILABLE": "Реванш сейчас недоступен",
+    "EXCLUSIVE_ATTACKER_NOT_DONE": "Подождите пока {{nickname}} закончит подкидывать",
     "generic": "Что-то пошло не так",
     "boundary": {
       "title": "Что-то пошло не так",

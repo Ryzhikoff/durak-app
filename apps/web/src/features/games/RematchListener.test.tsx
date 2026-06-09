@@ -38,6 +38,7 @@ const SETTINGS = {
   maxPlayers: 3 as const,
   firstBoutLimit: 5 as const,
   attackerScope: 'all' as const,
+  exclusiveThrowIn: false,
   cheatingEnabled: false,
   cheatAttempts: 0,
   cheatNoticeScope: 'defender_only' as const,

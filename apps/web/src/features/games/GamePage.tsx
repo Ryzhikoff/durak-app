@@ -51,6 +51,7 @@ import {
   canBeatCard,
   canPlayerNoticeEntry,
   canTranslateWith,
+  isExclusiveThrowInLocked,
 } from './legality';
 import type {
   AttackEntry,
@@ -183,6 +184,22 @@ function GameRoom({
   const status = state.status;
   const settings = state.settings;
   const cheatingOn = settings.cheatingEnabled === true;
+  // Mirrors `ExclusiveThrowInPolicy` — true when the viewer is currently
+  // locked out of throwing because the primary attacker hasn't said "бито"
+  // yet. Used to disable drag drops + show a transient hint, and to dim
+  // cards in the hand. The server is still authoritative.
+  const exclusiveLocked = useMemo(
+    () => isExclusiveThrowInLocked(state, myUserId),
+    [state, myUserId],
+  );
+  // Nickname of the player who currently holds the throw-in lock — used in
+  // the transient hint and PlayerHand tooltip.
+  const primaryAttackerNickname = useMemo(() => {
+    if (!exclusiveLocked) return '';
+    return (
+      state.players.find((p) => p.id === state.currentAttackerId)?.nickname ?? ''
+    );
+  }, [exclusiveLocked, state.players, state.currentAttackerId]);
 
   // ----- notice-cheat confirm modal state ----------------------------------
   // Holds the entry being flagged + a snapshot of whether it's a beat-cheat at
@@ -413,6 +430,13 @@ function GameRoom({
   // way attack zones do.
   const centerActive = useMemo(() => {
     if (!canDropOnCenter) return false;
+    // Defender's translate path is unaffected by the exclusive-throw-in lock
+    // (the lock only gates the *attack* command). Non-defenders who are
+    // currently locked out get a dim centre so the disabled state is
+    // visible at a glance.
+    if (exclusiveLocked && !(isDefender && status === 'bout_defense')) {
+      return false;
+    }
     if (draggingCardId === null) return true;
     const card = handById.get(draggingCardId);
     if (!card) return false;
@@ -429,6 +453,7 @@ function GameRoom({
     isDefender,
     status,
     state.table.attacks,
+    exclusiveLocked,
   ]);
 
   // -------- drag handlers --------
@@ -499,6 +524,16 @@ function GameRoom({
           return;
         }
         // Non-defender → attack/throw-in.
+        // Exclusive-throw-in lock: only the primary attacker may pile in
+        // before they say "бито". Anyone else is bounced with a hint.
+        if (exclusiveLocked) {
+          showTransientHint(
+            t('game.exclusiveThrowInWait', {
+              nickname: primaryAttackerNickname || '?',
+            }),
+          );
+          return;
+        }
         if (!cheatingOn && !canAttackWith(card, state.table.attacks)) {
           showTransientHint(t('game.hints.cantAttack'));
           return;
@@ -518,6 +553,8 @@ function GameRoom({
       myUserId,
       showTransientHint,
       t,
+      exclusiveLocked,
+      primaryAttackerNickname,
     ],
   );
 
@@ -617,7 +654,7 @@ function GameRoom({
           cheatingOn ||
           canTranslateWith(dragOverlayCard, state.table.attacks);
         if (legal) dragIntent = 'translate';
-      } else {
+      } else if (!exclusiveLocked) {
         const legal =
           cheatingOn || canAttackWith(dragOverlayCard, state.table.attacks);
         if (legal) dragIntent = 'attack';
@@ -827,6 +864,9 @@ function GameRoom({
                   hand={myHand}
                   trumpSuit={state.trumpSuit}
                   draggingCardId={draggingCardId}
+                  isAttacker={isAttacker}
+                  isDefender={isDefender}
+                  exclusiveLocked={exclusiveLocked}
                 />
               </div>
 

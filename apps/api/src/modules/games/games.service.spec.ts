@@ -223,7 +223,10 @@ function makePrismaStub(users: Record<string, FakePrismaUser>) {
 }
 
 function makeService(redis: FakeRedis, prisma: unknown): GamesService {
-  return new GamesService({ client: redis } as unknown as never, prisma as never);
+  return new GamesService(
+    { client: redis } as unknown as never,
+    prisma as never,
+  );
 }
 
 /**
@@ -237,7 +240,11 @@ async function makeServiceWithPause(
 ): Promise<{ svc: GamesService; pause: import('./games-pause.service').GamesPauseService }> {
   const { GamesPauseService } = await import('./games-pause.service');
   const pause = new GamesPauseService({ client: redis } as unknown as never);
-  const svc = new GamesService({ client: redis } as unknown as never, prisma as never, pause);
+  const svc = new GamesService(
+    { client: redis } as unknown as never,
+    prisma as never,
+    pause,
+  );
   return { svc, pause };
 }
 
@@ -521,6 +528,73 @@ describe('GamesService.applyGameCommand (authorisation)', () => {
     // Recent events recorded.
     const recent = await svc.getRecentEvents(gameId);
     expect(recent.length).toBeGreaterThan(0);
+  });
+
+  it('rejects a throw-in from a non-primary attacker when exclusiveThrowIn=true', async () => {
+    // 3-player lobby with exclusiveThrowIn=true. Engine deals cards. We find
+    // the primary attacker and a third non-defender player; that third player
+    // tries to throw their first card → backend should return EXCLUSIVE_ATTACKER_NOT_DONE
+    // as a 400. The state must NOT be mutated (no card removed from the
+    // would-be cheater's hand).
+    const lobby: Lobby = {
+      id: 'lobby-x',
+      createdAt: new Date().toISOString(),
+      status: 'waiting',
+      settings: { ...DEFAULT_LOBBY_SETTINGS, maxPlayers: 3, exclusiveThrowIn: true },
+      players: [
+        { userId: 'ua', nickname: 'Alice', avatarUrl: '/u/a.png', isReady: true },
+        { userId: 'ub', nickname: 'Bob', avatarUrl: null, isReady: true },
+        { userId: 'uc', nickname: 'Carol', avatarUrl: null, isReady: true },
+      ],
+      gameId: null,
+    };
+    const localRedis = new FakeRedis();
+    const localSvc = makeService(
+      localRedis,
+      makePrismaStub({
+        ua: USER_A,
+        ub: USER_B,
+        uc: {
+          id: 'uc',
+          nickname: 'Carol',
+          avatarUrl: null,
+          cardBackId: 'classic-1',
+          customCardBackUrl: null,
+        },
+      }),
+    );
+    const out = await localSvc.createFromLobby(lobby);
+    const initial = out.state;
+    // Primary attacker for the bout — engine picks via firstTurn.
+    const attacker = initial.players[initial.currentAttackerIndex];
+    const defender = initial.players[initial.currentDefenderIndex];
+    const thirdPlayer = initial.players.find(
+      (p) => p.id !== attacker.id && p.id !== defender.id,
+    );
+    expect(thirdPlayer).toBeDefined();
+    // Attacker opens the bout legally.
+    const r1 = await localSvc.applyGameCommand(out.gameId, attacker.id, {
+      type: 'attack',
+      playerId: attacker.id,
+      cardId: attacker.hand[0].id,
+    });
+    expect(r1.events.length).toBeGreaterThan(0);
+    // Third player tries to pile in — must be rejected with EXCLUSIVE_ATTACKER_NOT_DONE.
+    await expect(
+      localSvc.applyGameCommand(out.gameId, thirdPlayer!.id, {
+        type: 'attack',
+        playerId: thirdPlayer!.id,
+        cardId: thirdPlayer!.hand[0].id,
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'EXCLUSIVE_ATTACKER_NOT_DONE' }),
+    });
+    // State must not have lost the would-be thrower's card. Reload state.
+    const persisted = JSON.parse(
+      (await localRedis.get(`${GAME_KEY_PREFIX}${out.gameId}`)) as string,
+    ) as GameState;
+    const persistedThird = persisted.players.find((p) => p.id === thirdPlayer!.id);
+    expect(persistedThird?.hand.length).toBe(thirdPlayer!.hand.length);
   });
 
   it('uses GAME_OVER_TTL on game_over and clears userInGame:* pointers', async () => {

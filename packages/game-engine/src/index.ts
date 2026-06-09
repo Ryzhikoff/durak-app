@@ -73,9 +73,13 @@ export type { IFirstPlayerStrategy } from './strategies/first-player.js';
 export {
   AllPlayersPolicy,
   AttackerOnlyPolicy,
+  ExclusiveThrowInPolicy,
   attackPolicyFor,
 } from './strategies/attack-policy.js';
-export type { IAttackPolicy } from './strategies/attack-policy.js';
+export type {
+  AttackRejectionReason,
+  IAttackPolicy,
+} from './strategies/attack-policy.js';
 export { DefaultTranslatePolicy, defaultTranslatePolicy } from './strategies/translate-policy.js';
 export type { ITranslatePolicy, TranslateCheck } from './strategies/translate-policy.js';
 export { DefaultFirstBoutLimit, defaultFirstBoutLimit } from './strategies/first-bout-limit.js';

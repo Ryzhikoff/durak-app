@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
+import { useTranslation } from 'react-i18next';
 import { PlayingCard } from './PlayingCard';
 import { sortHand } from './handSort';
 import { useAuthStore } from '@/stores/auth.store';
@@ -19,6 +20,24 @@ interface PlayerHandProps {
    * pointer.
    */
   draggingCardId: string | null;
+  /**
+   * Viewer is the current attacker. Triggers the «Ваш ход» pulse frame +
+   * top badge so it's impossible to miss whose turn it is.
+   */
+  isAttacker?: boolean;
+  /**
+   * Viewer is the current defender. Same visual treatment as `isAttacker`,
+   * different badge label.
+   */
+  isDefender?: boolean;
+  /**
+   * `exclusiveThrowIn` lock is active and the viewer is NOT the primary
+   * attacker. Cards are still draggable (a drop attempt surfaces a transient
+   * hint with the primary's nickname) but rendered dimmed so the disabled
+   * state is unmistakable. Has no effect for the defender (they translate /
+   * take / beat, unaffected by the lock).
+   */
+  exclusiveLocked?: boolean;
 }
 
 /**
@@ -93,7 +112,15 @@ function computeOverlap(
  * cards translate up and bump their z-index so the lifted card is always fully
  * visible regardless of how aggressively the rest of the hand is packed.
  */
-export function PlayerHand({ hand, trumpSuit, draggingCardId }: PlayerHandProps) {
+export function PlayerHand({
+  hand,
+  trumpSuit,
+  draggingCardId,
+  isAttacker = false,
+  isDefender = false,
+  exclusiveLocked = false,
+}: PlayerHandProps) {
+  const { t } = useTranslation();
   // Pull the viewer's sort preference from the auth store. Falls back to
   // 'power' (the legacy mode) when the user record is missing — keeps
   // anonymous-rendering paths (storybook, tests) deterministic.
@@ -139,37 +166,80 @@ export function PlayerHand({ hand, trumpSuit, draggingCardId }: PlayerHandProps)
     return computeOverlap(sortedHand.length, available, metrics);
   }, [sortedHand.length, containerW, metrics]);
 
+  // «Ваш ход» state — only when the viewer is the current attacker/defender.
+  // We render a pulsing emerald frame around the hand plus a badge above it.
+  // `pointer-events-none` on the frame so DnD/hover work as before.
+  const isMyTurn = isAttacker || isDefender;
+  const yourTurnLabel = isAttacker
+    ? t('game.yourTurnAttack')
+    : isDefender
+      ? t('game.yourTurnDefend')
+      : t('game.yourTurn');
+
   return (
     <div
-      ref={containerRef}
       className={clsx(
-        // Overflow-hidden (not auto) — by construction the cards already fit
-        // via computed overlap, so any tiny rounding spill should be clipped
-        // rather than spawn a scrollbar.
-        'flex w-full items-end justify-center pb-1 pt-3 xl:pt-4 overflow-hidden',
+        'relative w-full',
+        // Add top padding when the badge is showing so it doesn't overlap the
+        // top edge of the cards / the reaction bubble anchor.
+        isMyTurn ? 'pt-4 xl:pt-5' : '',
+        // Exclusive-throw-in lock: visually mute the whole hand so the
+        // disabled drop state is unmistakable. We keep cards draggable so
+        // the drop handler can surface the localised "wait for X" hint.
+        exclusiveLocked ? 'opacity-50 cursor-not-allowed' : '',
       )}
-      data-testid="player-hand"
-      data-overlap={Math.round(overlap)}
-      data-card-count={sortedHand.length}
+      data-testid="player-hand-wrap"
+      data-my-turn={isMyTurn ? 'true' : 'false'}
+      data-exclusive-locked={exclusiveLocked ? 'true' : 'false'}
     >
-      {sortedHand.length === 0 ? (
-        <div className="py-4 text-xs text-textMuted">—</div>
+      {isMyTurn ? (
+        <>
+          <span
+            className="pointer-events-none absolute -top-1 left-1/2 z-20 -translate-x-1/2 whitespace-nowrap rounded-full bg-emerald-500 px-3 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white shadow-lg xl:text-xs"
+            data-testid="your-turn-badge"
+            data-turn-role={isAttacker ? 'attack' : 'defend'}
+          >
+            {yourTurnLabel}
+          </span>
+          <span
+            aria-hidden
+            className="your-turn-frame pointer-events-none absolute inset-0 z-10 ring-4 ring-emerald-400/70 animate-pulse"
+            data-testid="your-turn-frame"
+          />
+        </>
       ) : null}
-      {sortedHand.map((card, i) => (
-        <DraggableHandCard
-          key={card.id}
-          card={card}
-          dimmed={draggingCardId === card.id}
-          // First card sits flush; every subsequent card slides over its
-          // left neighbour by `overlap` px. We apply z-index increasing
-          // left-to-right so the rightmost card is on top by default — this
-          // matches how a real hand fan reads (newest card draws over).
-          style={{
-            marginLeft: i === 0 ? 0 : -overlap,
-            zIndex: i + 1,
-          }}
-        />
-      ))}
+
+      <div
+        ref={containerRef}
+        className={clsx(
+          // Overflow-hidden (not auto) — by construction the cards already fit
+          // via computed overlap, so any tiny rounding spill should be clipped
+          // rather than spawn a scrollbar.
+          'flex w-full items-end justify-center pb-1 pt-3 xl:pt-4 overflow-hidden',
+        )}
+        data-testid="player-hand"
+        data-overlap={Math.round(overlap)}
+        data-card-count={sortedHand.length}
+      >
+        {sortedHand.length === 0 ? (
+          <div className="py-4 text-xs text-textMuted">—</div>
+        ) : null}
+        {sortedHand.map((card, i) => (
+          <DraggableHandCard
+            key={card.id}
+            card={card}
+            dimmed={draggingCardId === card.id}
+            // First card sits flush; every subsequent card slides over its
+            // left neighbour by `overlap` px. We apply z-index increasing
+            // left-to-right so the rightmost card is on top by default — this
+            // matches how a real hand fan reads (newest card draws over).
+            style={{
+              marginLeft: i === 0 ? 0 : -overlap,
+              zIndex: i + 1,
+            }}
+          />
+        ))}
+      </div>
     </div>
   );
 }

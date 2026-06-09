@@ -35,10 +35,24 @@ function makeHand(n: number): Card[] {
   );
 }
 
-function renderHand(hand: Card[]) {
+function renderHand(
+  hand: Card[],
+  opts: {
+    isAttacker?: boolean;
+    isDefender?: boolean;
+    exclusiveLocked?: boolean;
+  } = {},
+) {
   return render(
     <DndContext>
-      <PlayerHand hand={hand} trumpSuit="hearts" draggingCardId={null} />
+      <PlayerHand
+        hand={hand}
+        trumpSuit="hearts"
+        draggingCardId={null}
+        isAttacker={opts.isAttacker}
+        isDefender={opts.isDefender}
+        exclusiveLocked={opts.exclusiveLocked}
+      />
     </DndContext>,
   );
 }
@@ -145,5 +159,54 @@ describe('PlayerHand', () => {
     const overlap = Number(root.dataset.overlap);
     // Desktop floor is 24 (was -ml-6 in the legacy layout).
     expect(overlap).toBe(24);
+  });
+
+  it('renders the «Ваш ход» frame + attack badge when viewer is the attacker', () => {
+    renderHand(makeHand(4), { isAttacker: true });
+    const wrap = screen.getByTestId('player-hand-wrap');
+    expect(wrap.dataset.myTurn).toBe('true');
+
+    const badge = screen.getByTestId('your-turn-badge');
+    expect(badge.dataset.turnRole).toBe('attack');
+    // Attacker copy lives in the i18n bundle as `game.yourTurnAttack`.
+    expect(badge.textContent).toMatch(/Ваш ход/);
+
+    const frame = screen.getByTestId('your-turn-frame');
+    // Emerald pulsing ring is what makes the frame impossible to miss.
+    expect(frame.className).toMatch(/animate-pulse/);
+    expect(frame.className).toMatch(/ring-emerald-400/);
+    // Frame must NOT capture pointer events — would otherwise break DnD.
+    expect(frame.className).toMatch(/pointer-events-none/);
+  });
+
+  it('renders the «Ваш ход» badge with defend copy when viewer is the defender', () => {
+    renderHand(makeHand(4), { isDefender: true });
+    const badge = screen.getByTestId('your-turn-badge');
+    expect(badge.dataset.turnRole).toBe('defend');
+    expect(badge.textContent).toMatch(/Ваш ход/);
+  });
+
+  it('does NOT render the «Ваш ход» frame/badge when viewer has no role', () => {
+    renderHand(makeHand(4));
+    const wrap = screen.getByTestId('player-hand-wrap');
+    expect(wrap.dataset.myTurn).toBe('false');
+    expect(screen.queryByTestId('your-turn-badge')).toBeNull();
+    expect(screen.queryByTestId('your-turn-frame')).toBeNull();
+  });
+
+  it('dims the hand when exclusiveLocked is true', () => {
+    renderHand(makeHand(4), { exclusiveLocked: true });
+    const wrap = screen.getByTestId('player-hand-wrap');
+    expect(wrap.dataset.exclusiveLocked).toBe('true');
+    // opacity + cursor utility applied so the disabled state is visible.
+    expect(wrap.className).toMatch(/opacity-50/);
+    expect(wrap.className).toMatch(/cursor-not-allowed/);
+  });
+
+  it('does not dim the hand when exclusiveLocked is false (default)', () => {
+    renderHand(makeHand(4));
+    const wrap = screen.getByTestId('player-hand-wrap');
+    expect(wrap.dataset.exclusiveLocked).toBe('false');
+    expect(wrap.className).not.toMatch(/opacity-50/);
   });
 });

@@ -60,6 +60,42 @@ export function canAttackWith(card: Card, attacks: readonly AttackEntry[]): bool
 }
 
 /**
+ * Mirrors `ExclusiveThrowInPolicy` from the engine for UI gating only.
+ *
+ * Returns `true` when the viewer is currently locked out of throwing because
+ * `settings.exclusiveThrowIn` is on AND someone else is the primary attacker
+ * AND that primary attacker has not yet said "бито". Used to disable the
+ * drag-to-attack interaction and to surface a transient hint when the viewer
+ * tries anyway.
+ *
+ * Returns `false` when the lock doesn't apply (setting off, viewer IS the
+ * primary, primary already pasted, primary is finished, primary has no
+ * cards). The server is the source of truth — this is purely cosmetic
+ * gating for snappier UX.
+ */
+export function isExclusiveThrowInLocked(state: ClientGameState, myUserId: string): boolean {
+  if (state.settings.exclusiveThrowIn !== true) return false;
+  if (!myUserId) return false;
+  // The lock only restricts throw-in. The defender's actions (beat / translate
+  // / take) are orthogonal to the throw-in policy — never dim their hand.
+  if (state.currentDefenderId === myUserId) return false;
+  // After game_over the redactor still carries currentAttackerId for podium
+  // rendering, but the hand is inert — nothing to gate.
+  if (state.status === 'game_over') return false;
+  const primaryId = state.currentAttackerId;
+  if (!primaryId) return false;
+  if (primaryId === myUserId) return false;
+  // Primary already pasted on this bout — lock released.
+  if (state.passedPlayerIds.includes(primaryId)) return false;
+  const primary = state.players.find((p) => p.id === primaryId);
+  if (!primary) return false;
+  if (primary.isFinished) return false;
+  // Primary has no cards left → can't throw, treat as released.
+  if (primary.handSize === 0) return false;
+  return true;
+}
+
+/**
  * Can the defender legally translate the bout with `card`?
  *
  *  - All current attacks must be unbeaten (no defense cards yet).
