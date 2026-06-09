@@ -117,3 +117,20 @@ export function sendPlayerReaction(
 ): Promise<{ ok: true }> {
   return emitWithAck(gamesSocket, GAME_EVENTS.reactionSend, { gameId, emoji });
 }
+
+/**
+ * Fire a seat-side TEXT reaction. The picker shows phrases from the admin-
+ * managed list; we ship the row id and let the server resolve it back to
+ * canonical text so no client can broadcast an arbitrary phrase. Shares the
+ * same per-user rate-limit bucket as `sendPlayerReaction` (one bubble of
+ * either kind per 1.5s window).
+ */
+export function sendPlayerTextReaction(
+  gameId: string,
+  textReactionId: string,
+): Promise<{ ok: true }> {
+  return emitWithAck(gamesSocket, GAME_EVENTS.textReactionSend, {
+    gameId,
+    textReactionId,
+  });
+}

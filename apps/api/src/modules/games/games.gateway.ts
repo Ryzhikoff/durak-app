@@ -24,6 +24,7 @@ import {
   type PauseInfo,
   type PauseVote,
   type PlayerReactionPayload,
+  type PlayerTextReactionPayload,
   type RematchCancelReason,
   type RematchSession,
 } from '@durak/shared-types';
@@ -99,6 +100,8 @@ export class GamesGateway
       chatMessage: (gameId, message) => this.broadcastChatMessage(gameId, message),
       chatReaction: (gameId, update) => this.broadcastChatReaction(gameId, update),
       playerReaction: (gameId, payload) => this.broadcastPlayerReaction(gameId, payload),
+      playerTextReaction: (gameId, payload) =>
+        this.broadcastPlayerTextReaction(gameId, payload),
     });
     this.rematch.setEventBus({
       invited: (userIds, session) =>
@@ -514,6 +517,23 @@ export class GamesGateway
     });
   }
 
+  @SubscribeMessage(GAME_EVENTS.textReactionSend)
+  async onTextReactionSend(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { gameId?: string; textReactionId?: string },
+  ): Promise<Ack<{ ok: true }>> {
+    return this.run(async () => {
+      const userId = this.requireUserId(client);
+      const gameId = this.requireGameId(body);
+      const id = typeof body?.textReactionId === 'string' ? body.textReactionId.trim() : '';
+      if (!id || id.length > 64) {
+        throw new GatewayError('TEXT_REACTION_NOT_FOUND', 'Reaction not found');
+      }
+      await this.games.recordTextReaction(gameId, userId, id);
+      return { ok: true as const };
+    });
+  }
+
   @SubscribeMessage(GAME_EVENTS.chatFetch)
   async onChatFetch(
     @ConnectedSocket() client: Socket,
@@ -773,6 +793,22 @@ export class GamesGateway
       this.server.to(gameRoom(gameId)).emit(GAME_EVENTS.playerReaction, payload);
     } catch (err) {
       this.logger.warn({ err, gameId }, 'failed to broadcast player reaction');
+    }
+  }
+
+  /**
+   * Fan out a transient seat-side TEXT reaction. Sibling of
+   * {@link broadcastPlayerReaction} — same room target, distinct event so
+   * clients can keep emoji and text bubbles in separate per-user slots.
+   */
+  private broadcastPlayerTextReaction(
+    gameId: string,
+    payload: PlayerTextReactionPayload,
+  ): void {
+    try {
+      this.server.to(gameRoom(gameId)).emit(GAME_EVENTS.playerTextReaction, payload);
+    } catch (err) {
+      this.logger.warn({ err, gameId }, 'failed to broadcast player text reaction');
     }
   }
 

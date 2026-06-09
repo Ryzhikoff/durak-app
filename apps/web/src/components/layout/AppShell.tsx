@@ -6,6 +6,7 @@ import {
   Images,
   LogOut,
   Menu,
+  MessageSquareText,
   Play,
   ShieldCheck,
   Sliders,
@@ -164,6 +165,14 @@ export function AppShell() {
                     {t('nav.adminFaceCards')}
                   </MenuLink>
                 ) : null}
+                {user.isAdmin ? (
+                  <MenuLink
+                    to="/admin/text-reactions"
+                    icon={<MessageSquareText className="h-4 w-4" />}
+                  >
+                    {t('nav.adminTextReactions')}
+                  </MenuLink>
+                ) : null}
                 <button
                   type="button"
                   role="menuitem"
@@ -219,6 +228,12 @@ export function AppShell() {
                 <MobileNavLink
                   to="/admin/rating-config"
                   label={t('nav.adminRatingConfig')}
+                />
+              ) : null}
+              {user.isAdmin ? (
+                <MobileNavLink
+                  to="/admin/text-reactions"
+                  label={t('nav.adminTextReactions')}
                 />
               ) : null}
               {user.isAdmin ? (

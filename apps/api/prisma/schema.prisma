@@ -171,6 +171,27 @@ model FaceCardAsset {
   @@unique([rank, suit])
 }
 
+/// Admin-managed list of preset text phrases ("реакции"). Players pick one
+/// from the in-game picker; the server resolves the row to its text and fans
+/// out a transient `game:player_text_reaction` bubble that floats above the
+/// sender's seat for ~2.5 s (same TTL as emoji reactions). Rows are soft-
+/// toggled via `enabled` — disabled phrases stay in the DB but are filtered
+/// out of both the public list and the rate-limited send path.
+model TextReaction {
+  id        String   @id @default(cuid())
+  /// Phrase shown verbatim in the picker and floated as a bubble. Hard-capped
+  /// at 30 chars by both the validator and the DB column type.
+  text      String   @db.VarChar(30)
+  /// Display order in the picker. Lower = earlier. Ties broken by id.
+  sortOrder Int      @default(0)
+  /// False = hidden from the public picker; admins can still see/edit/restore.
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([enabled, sortOrder])
+}
+
 /// Singleton TrueSkill parameters editable from the admin UI. We use a
 /// fixed primary key (`'singleton'`) so the row is upsert-able. Defaults
 /// match the openskill library's PlackettLuce defaults.

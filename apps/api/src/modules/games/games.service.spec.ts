@@ -222,10 +222,20 @@ function makePrismaStub(users: Record<string, FakePrismaUser>) {
   };
 }
 
+/**
+ * Stub for the AdminTextReactionsService injection. None of the existing
+ * GamesService specs exercise the text-reaction path, so a no-resolve stub is
+ * enough to keep the constructor signature satisfied.
+ */
+const textReactionsStub = {
+  resolveEnabled: async () => null,
+} as unknown as import('../admin-text-reactions/admin-text-reactions.service').AdminTextReactionsService;
+
 function makeService(redis: FakeRedis, prisma: unknown): GamesService {
   return new GamesService(
     { client: redis } as unknown as never,
     prisma as never,
+    textReactionsStub,
   );
 }
 
@@ -243,6 +253,7 @@ async function makeServiceWithPause(
   const svc = new GamesService(
     { client: redis } as unknown as never,
     prisma as never,
+    textReactionsStub,
     pause,
   );
   return { svc, pause };
@@ -514,6 +525,7 @@ describe('GamesService.applyGameCommand (authorisation)', () => {
       chatMessage: () => undefined,
       chatReaction: () => undefined,
       playerReaction: () => undefined,
+      playerTextReaction: () => undefined,
     });
     // Find any legal attack the engine accepts for the current attacker.
     const attacker = state.players[state.currentAttackerIndex];
@@ -633,6 +645,7 @@ describe('GamesService chat', () => {
       chatMessage: (gid, msg) => bus.messages.push({ gameId: gid, messageId: msg.id }),
       chatReaction: (gid, update) => bus.reactions.push({ gameId: gid, ...update }),
       playerReaction: () => undefined,
+      playerTextReaction: () => undefined,
     });
     ({ gameId } = await svc.createFromLobby(makeLobby()));
   });
@@ -1041,6 +1054,7 @@ describe('GamesService.concedeGame', () => {
       chatMessage: () => undefined,
       chatReaction: () => undefined,
       playerReaction: () => undefined,
+      playerTextReaction: () => undefined,
     });
     const { gameId } = await svc.createFromLobby(makeLobby());
     await pause.markDisconnected(gameId, 'ub');

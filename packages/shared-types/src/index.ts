@@ -764,6 +764,20 @@ export const GAME_EVENTS = {
   pauseVoteUpdate: 'game:pause_vote_update',
   pauseWaitExtended: 'game:pause_wait_extended',
   concedeCompleted: 'game:concede_completed',
+  /**
+   * Player taps a text phrase in the seat-side picker — sibling to
+   * {@link reactionSend}. Body carries `{ gameId, textReactionId }`; the
+   * server resolves the id against the admin-managed table so clients can
+   * never inject arbitrary text. Rate-limited via the same
+   * {@link PLAYER_REACTION_RATE_LIMIT_MS} bucket as the emoji path.
+   */
+  textReactionSend: 'game:text_reaction',
+  /**
+   * Server-to-client broadcast of a transient text reaction. Payload:
+   * {@link PlayerTextReactionPayload}. Rendered as a wrapping bubble above the
+   * sender's seat (counterpart to `game:player_reaction` for emoji).
+   */
+  playerTextReaction: 'game:player_text_reaction',
 } as const;
 
 export type GameEventName = (typeof GAME_EVENTS)[keyof typeof GAME_EVENTS];
@@ -977,6 +991,80 @@ export interface PlayerReactionPayload {
 export const PLAYER_REACTION_RATE_LIMIT_MS = 1500;
 /** How long the floating bubble stays visible on each client, in ms. */
 export const PLAYER_REACTION_BUBBLE_TTL_MS = 2500;
+
+// ---------- In-game text reactions (admin-managed, transient) ----------
+
+/**
+ * Public picker entry for a text reaction. The admin maintains the master list
+ * via the `/api/admin/text-reactions` CRUD; everyone else reads the enabled
+ * subset via `GET /api/text-reactions`. The bubble that floats over a seat is
+ * rendered straight from {@link text}.
+ */
+export interface TextReaction {
+  id: string;
+  text: string;
+  sortOrder: number;
+}
+
+/** Response of `GET /api/text-reactions` (public). */
+export interface TextReactionsResponse {
+  reactions: TextReaction[];
+}
+
+/** Full admin DTO — exposes the `enabled` toggle and timestamps. */
+export interface AdminTextReactionDTO {
+  id: string;
+  text: string;
+  sortOrder: number;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Response of `GET /api/admin/text-reactions`. */
+export interface AdminTextReactionsResponse {
+  reactions: AdminTextReactionDTO[];
+}
+
+/** Body of `POST /api/admin/text-reactions`. */
+export interface AdminCreateTextReactionRequest {
+  text: string;
+  sortOrder?: number;
+  enabled?: boolean;
+}
+
+/** Body of `PATCH /api/admin/text-reactions/:id`. */
+export interface AdminUpdateTextReactionRequest {
+  text?: string;
+  sortOrder?: number;
+  enabled?: boolean;
+}
+
+/** Hard cap on the rendered text — enforced by both DB column and validator. */
+export const TEXT_REACTION_MAX_LENGTH = 30;
+
+/**
+ * Wire payload of the client-to-server `game:text_reaction` emit. The user
+ * picked a row from the picker; the server resolves the id and broadcasts the
+ * resolved text so clients can never inject arbitrary phrases.
+ */
+export interface PlayerTextReactionRequest {
+  gameId: string;
+  textReactionId: string;
+}
+
+/**
+ * Server-to-client broadcast for a transient seat-side TEXT reaction. Same
+ * lifetime + rate-limit model as {@link PlayerReactionPayload}: the bubble
+ * floats above the named seat for {@link PLAYER_REACTION_BUBBLE_TTL_MS} and is
+ * never persisted.
+ */
+export interface PlayerTextReactionPayload {
+  userId: string;
+  text: string;
+  /** ISO 8601 — when the server accepted the reaction. */
+  timestamp: string;
+}
 
 // ---------- Error envelope ----------
 

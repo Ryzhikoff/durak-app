@@ -15,6 +15,8 @@ interface RadialOpponentsProps {
   showCheatBadge: boolean;
   /** Floating reaction map (per opponent id). */
   reactions: Record<string, { emoji: string; timestamp: string } | null>;
+  /** Floating text-reaction map (per opponent id). Independent of `reactions`. */
+  textReactions?: Record<string, { text: string; timestamp: string } | null>;
 }
 
 /**
@@ -74,6 +76,7 @@ export function RadialOpponents({
   currentDefenderId,
   showCheatBadge,
   reactions,
+  textReactions,
 }: RadialOpponentsProps) {
   const count = opponents.length;
   if (count === 0) return null;
@@ -104,6 +107,7 @@ export function RadialOpponents({
               isDefender={opponent.id === currentDefenderId}
               showCheatBadge={showCheatBadge}
               reaction={reactions[opponent.id] ?? null}
+              textReaction={textReactions?.[opponent.id] ?? null}
               variant="seat"
             />
           </div>

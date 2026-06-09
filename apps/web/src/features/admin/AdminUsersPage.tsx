@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { Images, Plus, Search, ShieldCheck, Sliders } from 'lucide-react';
+import { Images, MessageSquareText, Plus, Search, ShieldCheck, Sliders } from 'lucide-react';
 import { Alert, Button, Card, Input, Modal, Spinner } from '@/components/ui';
 import { useAdminUsers, useDeleteUser, useUpdateUser } from './hooks';
 import { CreateUserModal } from './CreateUserModal';
@@ -108,6 +108,13 @@ export function AdminUsersPage() {
           >
             <Images className="h-4 w-4" />
             {t('nav.adminFaceCards')}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => navigate('/admin/text-reactions')}
+          >
+            <MessageSquareText className="h-4 w-4" />
+            {t('nav.adminTextReactions')}
           </Button>
           <Button onClick={() => setCreateOpen(true)}>
             <Plus className="h-4 w-4" />

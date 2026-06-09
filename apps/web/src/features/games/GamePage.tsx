@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { MessageCircle, Settings2, Smile } from 'lucide-react';
+import { MessageCircle, MessageSquareText, Settings2, Smile } from 'lucide-react';
 import { EMOJI_REACTIONS } from '@durak/shared-types';
 import {
   DndContext,
@@ -25,7 +25,9 @@ import {
   useGameChat,
   useGameCommand,
   useGameReactions,
+  useGameTextReactions,
   usePauseVote,
+  useTextReactions,
 } from './hooks';
 import { GameChatPanel } from './GameChatPanel';
 import { ReactionBubble } from './ReactionBubble';
@@ -267,6 +269,50 @@ function GameRoom({
     [reactionsHook, t],
   );
   const myReaction = reactionsHook.reactions[myUserId] ?? null;
+
+  // Sibling state for the admin-managed TEXT reactions. Picker, list and
+  // outside-click close mirror the emoji picker above; the bubbles stack
+  // on a separate per-user slot so an emoji + text bubble can coexist.
+  const textReactionsHook = useGameTextReactions(gameId);
+  const textReactionsList = useTextReactions();
+  const [textReactionPickerOpen, setTextReactionPickerOpen] = useState(false);
+  const textReactionPickerRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!textReactionPickerOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const root = textReactionPickerRef.current;
+      if (root && e.target instanceof Node && !root.contains(e.target)) {
+        setTextReactionPickerOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setTextReactionPickerOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [textReactionPickerOpen]);
+  const onPickTextReaction = useCallback(
+    async (textReactionId: string) => {
+      setTextReactionPickerOpen(false);
+      try {
+        await textReactionsHook.send(textReactionId);
+      } catch (err: unknown) {
+        if (err instanceof SocketAckError) {
+          setError(
+            t(`game.errors.${err.code}`, {
+              defaultValue: t(`errors.${err.code}`, { defaultValue: err.message }),
+            }),
+          );
+        }
+      }
+    },
+    [textReactionsHook, t],
+  );
+  const myTextReaction = textReactionsHook.textReactions[myUserId] ?? null;
 
   const tableHasUnbeaten = useMemo(
     () => state.table.attacks.some((a) => a.beatenBy === null),
@@ -778,6 +824,7 @@ function GameRoom({
                 isMe={p.id === myUserId}
                 showCheatBadge={cheatingOn && p.id !== myUserId}
                 reaction={reactionsHook.reactions[p.id] ?? null}
+                textReaction={textReactionsHook.textReactions[p.id] ?? null}
               />
             ))}
           </div>
@@ -809,6 +856,7 @@ function GameRoom({
               currentDefenderId={state.currentDefenderId}
               showCheatBadge={cheatingOn}
               reactions={reactionsHook.reactions}
+              textReactions={textReactionsHook.textReactions}
             />
             {/* Desktop-only deck-stack — pinned to the right edge of the
                 felt-table arena, vertically centred against the table. (The
@@ -858,6 +906,13 @@ function GameRoom({
                   <ReactionBubble
                     key={myReaction?.timestamp ?? 'none'}
                     emoji={myReaction?.emoji ?? null}
+                  />
+                </div>
+                <div className="pointer-events-none absolute inset-x-0 -top-2 flex justify-center">
+                  <ReactionBubble
+                    key={`text-${myTextReaction?.timestamp ?? 'none'}`}
+                    text={myTextReaction?.text ?? null}
+                    className="!-top-14"
                   />
                 </div>
                 <PlayerHand
@@ -920,6 +975,56 @@ function GameRoom({
                         {emoji}
                       </button>
                     ))}
+                  </div>
+                ) : null}
+              </div>
+              {/* Sibling column hosting the TEXT-reactions trigger + picker.
+                  Identical positioning shape to the emoji column above (own
+                  ref → outside-click hook scoped to it). The picker pops up
+                  on top of the action bar so wrapping multi-line phrases
+                  have room. */}
+              <div
+                ref={textReactionPickerRef}
+                className="relative flex shrink-0 flex-col items-end self-end pb-2"
+              >
+                <button
+                  type="button"
+                  onClick={() => setTextReactionPickerOpen((v) => !v)}
+                  aria-label={t('game.reactions.textPickerLabel')}
+                  aria-pressed={textReactionPickerOpen}
+                  data-testid="open-text-reaction-picker"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border bg-surface text-text shadow-lg transition-transform hover:scale-105 hover:bg-surfaceAlt xl:h-12 xl:w-12"
+                >
+                  <MessageSquareText className="h-5 w-5" aria-hidden />
+                </button>
+                {textReactionPickerOpen ? (
+                  <div
+                    className="absolute bottom-full right-0 z-30 mb-2 flex max-h-64 w-72 flex-col gap-1 overflow-y-auto rounded-xl border border-border bg-surface p-2 shadow-2xl md:max-h-80 md:w-96 md:p-3"
+                    role="menu"
+                    aria-label={t('game.reactions.textPickerLabel')}
+                    data-testid="text-reaction-picker"
+                  >
+                    {textReactionsList.data && textReactionsList.data.length > 0 ? (
+                      textReactionsList.data.map((r) => (
+                        <button
+                          key={r.id}
+                          type="button"
+                          role="menuitem"
+                          onClick={() => void onPickTextReaction(r.id)}
+                          className="w-full rounded px-3 py-1.5 text-left text-sm leading-tight text-text transition-colors hover:bg-border md:text-base"
+                          data-testid={`text-reaction-${r.id}`}
+                        >
+                          {r.text}
+                        </button>
+                      ))
+                    ) : (
+                      <div
+                        className="px-3 py-2 text-center text-sm text-textMuted"
+                        data-testid="text-reaction-empty"
+                      >
+                        {t('game.reactions.textPickerEmpty')}
+                      </div>
+                    )}
                   </div>
                 ) : null}
               </div>

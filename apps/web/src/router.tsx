@@ -6,6 +6,7 @@ import { AdminSetupPage } from '@/features/admin-setup/AdminSetupPage';
 import { AdminUsersPage } from '@/features/admin/AdminUsersPage';
 import { AdminRatingConfigPage } from '@/features/admin/AdminRatingConfigPage';
 import { AdminFaceCardsPage } from '@/features/admin/AdminFaceCardsPage';
+import { AdminTextReactionsPage } from '@/features/admin/AdminTextReactionsPage';
 import { ProfilePage } from '@/features/profile/ProfilePage';
 import { RatingPage } from '@/features/rating/RatingPage';
 import { GamePage } from '@/features/games/GamePage';
@@ -76,6 +77,14 @@ export function AppRouter() {
           element={
             <ProtectedRoute requireAdmin>
               <AdminFaceCardsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/text-reactions"
+          element={
+            <ProtectedRoute requireAdmin>
+              <AdminTextReactionsPage />
             </ProtectedRoute>
           }
         />

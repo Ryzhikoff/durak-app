@@ -19,6 +19,7 @@ import type {
   ChatMessageReply,
   Lobby,
   PlayerReactionPayload,
+  PlayerTextReactionPayload,
 } from '@durak/shared-types';
 import {
   CHAT_HISTORY_LIMIT,
@@ -27,6 +28,7 @@ import {
   EMOJI_REACTIONS,
   PLAYER_REACTION_RATE_LIMIT_MS,
 } from '@durak/shared-types';
+import { AdminTextReactionsService } from '../admin-text-reactions/admin-text-reactions.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { RedisService } from '../../infrastructure/redis/redis.service';
 import {
@@ -231,6 +233,12 @@ interface GameEventBus {
    * Never persisted.
    */
   playerReaction(gameId: string, payload: PlayerReactionPayload): void;
+  /**
+   * Transient seat-side TEXT reaction — sibling channel to `playerReaction`,
+   * but the bubble renders a wrapped text phrase resolved server-side from
+   * the admin-managed list. Never persisted.
+   */
+  playerTextReaction(gameId: string, payload: PlayerTextReactionPayload): void;
 }
 
 const NOOP_BUS: GameEventBus = {
@@ -239,6 +247,7 @@ const NOOP_BUS: GameEventBus = {
   chatMessage: () => undefined,
   chatReaction: () => undefined,
   playerReaction: () => undefined,
+  playerTextReaction: () => undefined,
 };
 
 function gameKey(id: string): string {
@@ -363,6 +372,7 @@ export class GamesService {
   constructor(
     private readonly redis: RedisService,
     private readonly prisma: PrismaService,
+    private readonly textReactions: AdminTextReactionsService,
     private readonly pause?: GamesPauseService,
   ) {}
 
@@ -923,6 +933,58 @@ export class GamesService {
       timestamp: new Date().toISOString(),
     };
     this.bus.playerReaction(gameId, payload);
+    return payload;
+  }
+
+  /**
+   * Record a transient in-game seat TEXT reaction. Validates id-against-admin-
+   * table + membership + rate-limit; broadcasts via the bus on success. The
+   * text is resolved server-side from the admin store so clients can never
+   * inject arbitrary phrases. Shares the same per-user rate-limit bucket as
+   * the emoji path — one bubble of either kind per
+   * {@link PLAYER_REACTION_RATE_LIMIT_MS} window.
+   */
+  async recordTextReaction(
+    gameId: string,
+    userId: string,
+    textReactionId: string,
+  ): Promise<PlayerTextReactionPayload> {
+    if (typeof textReactionId !== 'string' || textReactionId.length === 0) {
+      throw new BadRequestException({
+        code: 'TEXT_REACTION_NOT_FOUND',
+        message: 'Reaction not found',
+      });
+    }
+    const resolved = await this.textReactions.resolveEnabled(textReactionId);
+    if (!resolved) {
+      throw new NotFoundException({
+        code: 'TEXT_REACTION_NOT_FOUND',
+        message: 'Reaction not found',
+      });
+    }
+    const state = await this.tryGet(gameId);
+    if (!state || !state.players.some((p) => p.id === userId)) {
+      throw new NotFoundException({ code: 'GAME_NOT_FOUND', message: 'Game not found' });
+    }
+    const setRes = await this.redis.client.set(
+      reactionRateKey(gameId, userId),
+      '1',
+      'PX',
+      PLAYER_REACTION_RATE_LIMIT_MS,
+      'NX',
+    );
+    if (setRes !== 'OK') {
+      throw new BadRequestException({
+        code: 'REACTION_RATE_LIMIT',
+        message: 'Too many reactions — slow down',
+      });
+    }
+    const payload: PlayerTextReactionPayload = {
+      userId,
+      text: resolved.text,
+      timestamp: new Date().toISOString(),
+    };
+    this.bus.playerTextReaction(gameId, payload);
     return payload;
   }
 

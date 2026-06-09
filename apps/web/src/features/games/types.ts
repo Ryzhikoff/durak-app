@@ -46,6 +46,8 @@ export type {
   PauseInfo,
   PauseVote,
   PlayerReactionPayload,
+  PlayerTextReactionPayload,
+  TextReaction,
 } from '@durak/shared-types';
 
 /** Mirrors `apps/api/src/modules/games/game-redactor.ts:ClientGamePlayer`. */

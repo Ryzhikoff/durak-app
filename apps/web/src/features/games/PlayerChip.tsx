@@ -18,6 +18,8 @@ interface PlayerChipProps {
   showCheatBadge?: boolean;
   /** Floating reaction emoji bubble. */
   reaction?: { emoji: string; timestamp: string } | null;
+  /** Floating text-reaction bubble. Independent of the emoji slot. */
+  textReaction?: { text: string; timestamp: string } | null;
   /**
    * Visual variant.
    *  - `'row'` (default) — compact horizontal chip used in the mobile players row.
@@ -40,6 +42,7 @@ export function PlayerChip({
   isMe = false,
   showCheatBadge,
   reaction,
+  textReaction,
   variant = 'row',
 }: PlayerChipProps) {
   const { t } = useTranslation();
@@ -85,6 +88,13 @@ export function PlayerChip({
       >
         {reaction ? (
           <ReactionBubble key={reaction.timestamp} emoji={reaction.emoji} />
+        ) : null}
+        {textReaction ? (
+          <ReactionBubble
+            key={`text-${textReaction.timestamp}`}
+            text={textReaction.text}
+            className="!-top-14"
+          />
         ) : null}
 
         <div className="flex w-full items-center gap-2">
@@ -153,6 +163,13 @@ export function PlayerChip({
     >
       {reaction ? (
         <ReactionBubble key={reaction.timestamp} emoji={reaction.emoji} />
+      ) : null}
+      {textReaction ? (
+        <ReactionBubble
+          key={`text-${textReaction.timestamp}`}
+          text={textReaction.text}
+          className="!-top-14"
+        />
       ) : null}
 
       <Avatar

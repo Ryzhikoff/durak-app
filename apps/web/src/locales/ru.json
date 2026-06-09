@@ -8,6 +8,7 @@
     "admin": "Админка",
     "adminRatingConfig": "Параметры рейтинга",
     "adminFaceCards": "Картинки фигурных карт",
+    "adminTextReactions": "Текстовые реакции",
     "profile": "Профиль",
     "logout": "Выйти",
     "menuToggle": "Меню",
@@ -361,7 +362,9 @@
       }
     },
     "reactions": {
-      "send": "Реакция"
+      "send": "Реакция",
+      "textPickerLabel": "Текстовые реакции",
+      "textPickerEmpty": "Админ пока не добавил фразы"
     },
     "spectator": {
       "banner": "Вы наблюдаете за игрой",
@@ -533,6 +536,30 @@
         "hearts": "Червы",
         "diamonds": "Бубны",
         "clubs": "Трефы"
+      }
+    },
+    "textReactions": {
+      "title": "Текстовые реакции",
+      "subtitle": "Список фраз, которые игроки могут отправлять в игре. Включённые фразы появляются в пикере рядом с эмодзи-реакциями.",
+      "add": "Добавить",
+      "text": "Текст",
+      "sortOrder": "Порядок",
+      "enabled": "Активна",
+      "enabledOn": "Активна",
+      "enabledOff": "Отключена",
+      "maxLength": "Осталось символов: {{remaining}}",
+      "empty": "Реакций пока нет",
+      "actions": {
+        "edit": "Редактировать",
+        "delete": "Удалить",
+        "disable": "Отключить",
+        "enable": "Включить"
+      },
+      "deleteModal": {
+        "title": "Удалить реакцию",
+        "description": "Реакция «{{text}}» будет удалена. Игроки больше не смогут её выбирать.",
+        "confirm": "Удалить",
+        "cancel": "Отмена"
       }
     },
     "ratingConfig": {
@@ -723,6 +750,9 @@
     "CHAT_REACTION_INVALID": "Недопустимая реакция",
     "REACTION_RATE_LIMIT": "Слишком часто",
     "REACTION_INVALID": "Некорректная реакция",
+    "TEXT_REACTION_NOT_FOUND": "Реакция недоступна",
+    "TEXT_REACTION_TOO_LONG": "Текст слишком длинный (макс. 30 символов)",
+    "TEXT_REACTION_EMPTY": "Текст не может быть пустым",
     "REMATCH_WINDOW_CLOSED": "Прошло слишком много времени с окончания игры",
     "REMATCH_NOT_FOUND": "Реванш недоступен — сессия уже закрыта",
     "REMATCH_EXPIRED": "Время реванша истекло",

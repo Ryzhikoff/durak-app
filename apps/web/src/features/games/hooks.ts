@@ -14,8 +14,13 @@ import {
   PLAYER_REACTION_BUBBLE_TTL_MS,
   type FaceCardAsset,
   type RematchSession,
+  type TextReaction,
 } from '@durak/shared-types';
 import { fetchFaceCards } from './faceCardsApi';
+import {
+  TEXT_REACTIONS_QUERY_KEY,
+  fetchTextReactions,
+} from './textReactionsApi';
 import { getApiErrorCode } from '@/lib/api';
 import {
   acceptRematch,
@@ -35,6 +40,7 @@ import {
   sendGameCommand,
   sendPauseVote,
   sendPlayerReaction,
+  sendPlayerTextReaction,
   subscribeGame,
   useGameSocket,
 } from './socket';
@@ -58,6 +64,7 @@ import type {
   PauseInfo,
   PauseVote,
   PlayerReactionPayload,
+  PlayerTextReactionPayload,
 } from './types';
 
 export const GAMES_QUERY_KEY = 'games' as const;
@@ -836,6 +843,93 @@ export function useGameReactions(
   );
 
   return { reactions, send };
+}
+
+/**
+ * Public picker list — admin-managed text phrases that players can fire as a
+ * floating bubble. Cached aggressively (5 min) since admin edits are rare and
+ * the admin mutation explicitly invalidates the key.
+ */
+export function useTextReactions() {
+  return useQuery<TextReaction[]>({
+    queryKey: TEXT_REACTIONS_QUERY_KEY,
+    queryFn: fetchTextReactions,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    // The endpoint is unconditional but the table may be empty / the migration
+    // may not yet be deployed — fail-fast so callers can render an empty UI
+    // instead of a perpetual spinner.
+    retry: false,
+  });
+}
+
+/** Per-seat live TEXT reaction state. Twin of {@link ActiveReaction}. */
+export interface ActiveTextReaction {
+  text: string;
+  /** ISO timestamp returned by the server — drives the React `key` for replays. */
+  timestamp: string;
+}
+
+export interface UseGameTextReactionsResult {
+  /** Current floating text reaction per user. Missing entry = nothing to show. */
+  textReactions: Record<string, ActiveTextReaction>;
+  /** Fire a text reaction by its admin-managed row id. */
+  send: (textReactionId: string) => Promise<void>;
+}
+
+/**
+ * Live seat TEXT-reaction subscription — sibling of {@link useGameReactions}.
+ * Mirrors its TTL bookkeeping (per-user expiry timers) but in a separate state
+ * slot so an emoji bubble and a text bubble can coexist for the same user.
+ */
+export function useGameTextReactions(
+  gameId: string | undefined,
+): UseGameTextReactionsResult {
+  useGameSocket();
+  const [textReactions, setTextReactions] = useState<
+    Record<string, ActiveTextReaction>
+  >({});
+  const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  useEffect(() => {
+    if (!gameId) return;
+    const socket = gamesSocket;
+    const timers = timersRef.current;
+
+    const onReaction = (payload: PlayerTextReactionPayload) => {
+      const { userId, text, timestamp } = payload;
+      const prev = timers.get(userId);
+      if (prev) clearTimeout(prev);
+      setTextReactions((cur) => ({ ...cur, [userId]: { text, timestamp } }));
+      const handle = setTimeout(() => {
+        timers.delete(userId);
+        setTextReactions((cur) => {
+          if (cur[userId]?.timestamp !== timestamp) return cur;
+          const next = { ...cur };
+          delete next[userId];
+          return next;
+        });
+      }, PLAYER_REACTION_BUBBLE_TTL_MS);
+      timers.set(userId, handle);
+    };
+
+    socket.on(GAME_EVENTS.playerTextReaction, onReaction);
+    return () => {
+      socket.off(GAME_EVENTS.playerTextReaction, onReaction);
+      for (const handle of timers.values()) clearTimeout(handle);
+      timers.clear();
+    };
+  }, [gameId]);
+
+  const send = useCallback(
+    async (textReactionId: string): Promise<void> => {
+      if (!gameId) throw new Error('GAME_ID_MISSING');
+      await sendPlayerTextReaction(gameId, textReactionId);
+    },
+    [gameId],
+  );
+
+  return { textReactions, send };
 }
 
 /**
