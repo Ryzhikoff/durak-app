@@ -78,8 +78,13 @@ const RESPONSIVE_VARS = [
 const CW = 'var(--deck-card-w)';
 const CH = 'var(--deck-card-h)';
 const STEP = 'var(--deck-step)';
-/** 55% of cardW — how far the rotated trump card pokes out from under the stack. */
-const TRUMP_OVERHANG = `calc(${CW} * 0.55)`;
+/**
+ * How deep the rotated trump card slides UNDER the stack — the smaller this
+ * value, the more of the trump card stays visible below the pile. At 0.20 only
+ * the trump's narrow top strip is covered; ~80% of its short side pokes out so
+ * the rank + suit and the central glyph are both clearly readable.
+ */
+const TRUMP_OVERHANG = `calc(${CW} * 0.20)`;
 
 /**
  * Communal-deck visual: a small stack of face-down card backs with the trump

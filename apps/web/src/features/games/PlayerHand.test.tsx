@@ -151,14 +151,15 @@ describe('PlayerHand', () => {
   });
 
   it('keeps Tailwind responsive overlap mapping in sync with PlayingCard md', () => {
-    // On desktop viewport the bigger cards demand a bigger min overlap so the
-    // hand stays compact-but-readable.
+    // On desktop viewport the felt-table is wide enough that small hands
+    // breathe with an explicit gap (negative overlap). When the hand grows
+    // the formula pulls neighbours closer; here with 4 cards there's plenty
+    // of room so we expect the floor.
     setViewport(1440); // xl breakpoint
     renderHand(makeHand(4));
     const root = screen.getByTestId('player-hand');
     const overlap = Number(root.dataset.overlap);
-    // Desktop floor is 24 (was -ml-6 in the legacy layout).
-    expect(overlap).toBe(24);
+    expect(overlap).toBe(-16);
   });
 
   it('renders the «Ваш ход» frame + attack badge when viewer is the attacker', () => {

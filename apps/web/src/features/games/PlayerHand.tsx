@@ -52,9 +52,13 @@ const CARD_W_2XL = 112; // w-28
 /** Minimum visible slice of an overlapped card — keep at least the corner badge readable. */
 const MIN_VISIBLE_BASE = 24;
 const MIN_VISIBLE_DESKTOP = 28;
-/** Lower bound on overlap so a small hand (<= 4 cards) still looks like a hand. */
+/**
+ * Lower bound on overlap. Mobile keeps a tight stacked look because horizontal
+ * space is scarce; desktop intentionally goes negative so small hands sit with
+ * a clear gap between cards (the felt-table is wide, no reason to crowd them).
+ */
 const MIN_OVERLAP_BASE = 12; // matches the legacy -ml-3
-const MIN_OVERLAP_DESKTOP = 24; // matches the legacy xl:-ml-6
+const MIN_OVERLAP_DESKTOP = -16;
 /** Side gutter we leave inside the container so cards don't kiss the screen edge. */
 const SIDE_GUTTER = 12;
 
