@@ -45,6 +45,13 @@ export interface ClientGameState {
   currentAttackerId: PlayerId;
   currentDefenderId: PlayerId;
   passedPlayerIds: PlayerId[];
+  /**
+   * Mirror of {@link GameState.exclusiveLockReleased}. Lets the client
+   * disable / enable hand-drag gating for `exclusiveThrowIn` without having
+   * to re-derive the latch from `passedPlayerIds` (which gets wiped on every
+   * throw-in).
+   */
+  exclusiveLockReleased: boolean;
   players: ClientGamePlayer[];
   /**
    * True when the snapshot is built for a spectator (a logged-in user who is
@@ -155,6 +162,7 @@ export function redactForPlayer(
     currentAttackerId: attacker?.id ?? '',
     currentDefenderId: defender?.id ?? '',
     passedPlayerIds: state.passedPlayerIds.slice(),
+    exclusiveLockReleased: state.exclusiveLockReleased === true,
     players,
   };
   if (isSpectator) snapshot.isSpectator = true;

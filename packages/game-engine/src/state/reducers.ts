@@ -343,6 +343,10 @@ function reduceTranslate(
     currentDefenderIndex: newDefenderIndex,
     initialDefenderHandSize: newDefenderHandSize,
     passedPlayerIds: [],
+    // Translate hands the primary-attacker slot to the ex-defender; the
+    // exclusive-throw-in lock re-engages and the new primary must say
+    // "бито" before others may pile in.
+    exclusiveLockReleased: false,
     status: 'bout_defense',
   };
 
@@ -449,9 +453,20 @@ function reducePass(
   }
 
   const phase = state.status;
+  // Latch the exclusive-throw-in release the first time the current bout's
+  // PRIMARY attacker pastes. Subsequent throw-ins reset `passedPlayerIds` —
+  // so we cannot rely on the primary's id staying in that list to recognise
+  // the lock as released. The latch persists for the rest of the bout and
+  // is cleared on bout closure / translate.
+  const primaryId = state.players[state.currentAttackerIndex]?.id;
+  const lockReleased =
+    state.exclusiveLockReleased ||
+    (state.settings.exclusiveThrowIn === true && player.id === primaryId);
+
   let next: GameState = {
     ...state,
     passedPlayerIds: [...state.passedPlayerIds, player.id],
+    exclusiveLockReleased: lockReleased,
   };
   const events: DomainEvent[] = [{ type: 'TablePassed', sayerId: player.id }];
 

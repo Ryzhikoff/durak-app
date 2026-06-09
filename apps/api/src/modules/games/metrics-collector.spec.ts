@@ -53,6 +53,7 @@ function makeState(overrides: Partial<GameState> & { cheatingEnabled?: boolean }
     finishedPlayers: [],
     loserPlayerId: null,
     passedPlayerIds: [],
+    exclusiveLockReleased: false,
     cheatAttemptsRemaining: { a: 1, b: 1 },
     randSeed: 1,
     rngState: 1,

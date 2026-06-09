@@ -83,6 +83,14 @@ export interface ClientGameState {
   currentAttackerId: string;
   currentDefenderId: string;
   passedPlayerIds: string[];
+  /**
+   * Latched once the current bout's primary attacker has said "бито" /
+   * "пусть берёт". Used by `isExclusiveThrowInLocked` for UI gating instead
+   * of inspecting `passedPlayerIds` directly (which gets wiped on every
+   * throw-in). Optional for backwards-compat with older snapshots that
+   * pre-dated the field; absent is treated the same as `false`.
+   */
+  exclusiveLockReleased?: boolean;
   players: ClientGamePlayer[];
   /**
    * True when the snapshot was redacted for a spectator. The viewer is NOT in

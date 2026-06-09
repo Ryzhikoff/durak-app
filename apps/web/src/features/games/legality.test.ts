@@ -298,9 +298,43 @@ describe('isExclusiveThrowInLocked', () => {
     expect(isExclusiveThrowInLocked(st, 'me')).toBe(true);
   });
 
-  it('returns false once the primary attacker pasted', () => {
-    const st = makeState({ passedPlayerIds: ['atk'] });
+  it('returns false once the primary attacker pasted (legacy fallback via passedPlayerIds)', () => {
+    // Snapshots from a server build that pre-dates the latch field still
+    // carry the primary in `passedPlayerIds` immediately after their pass.
+    // We treat that as released for backwards-compat (no in-flight regressions
+    // during a rolling deploy).
+    const st = makeState({ passedPlayerIds: ['atk'], exclusiveLockReleased: undefined });
     expect(isExclusiveThrowInLocked(st, 'me')).toBe(false);
+  });
+
+  it('returns false when the server latch reports the lock released', () => {
+    // Mirror of the engine bug fix: once the primary has pasted, the server
+    // sets `exclusiveLockReleased = true`. Even if a subsequent throw-in
+    // wiped `passedPlayerIds`, the UI must keep the hand interactive.
+    const st = makeState({ passedPlayerIds: [], exclusiveLockReleased: true });
+    expect(isExclusiveThrowInLocked(st, 'me')).toBe(false);
+  });
+
+  it('regression: lock stays open after another thrower piled in', () => {
+    // Concrete bug scenario: A (primary) pasted → C piled on → server wiped
+    // `passedPlayerIds` to []. The latch should still be true; UI must NOT
+    // re-lock against `me` (a fourth seat).
+    const st = makeState({
+      passedPlayerIds: [],
+      exclusiveLockReleased: true,
+      status: 'bout_defense',
+    });
+    expect(isExclusiveThrowInLocked(st, 'me')).toBe(false);
+  });
+
+  it('still locks when the latch is false even if some non-primary already passed', () => {
+    // Defensive: passedPlayerIds containing a non-primary id must not be
+    // mistaken for the primary's pass when the latch is explicitly false.
+    const st = makeState({
+      passedPlayerIds: ['def'],
+      exclusiveLockReleased: false,
+    });
+    expect(isExclusiveThrowInLocked(st, 'me')).toBe(true);
   });
 
   it('returns false when the primary attacker has no cards left', () => {

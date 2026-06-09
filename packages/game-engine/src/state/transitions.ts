@@ -245,6 +245,10 @@ function startNewBout(state: GameState, attackerIndex: number, defenderIndex: nu
     boutNumber: state.boutNumber + 1,
     initialDefenderHandSize: defender.hand.length,
     passedPlayerIds: [],
+    // Fresh bout → re-engage the exclusive-throw-in lock for the new primary
+    // attacker. Only relevant when the setting is on; otherwise the field is
+    // never read.
+    exclusiveLockReleased: false,
     cheatAttemptsRemaining: initialAttempts,
     status: 'bout_attack',
   };

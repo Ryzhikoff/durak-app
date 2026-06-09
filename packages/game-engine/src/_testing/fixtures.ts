@@ -94,6 +94,7 @@ export function craftGame(input: CraftedGameInput): GameState {
     finishedPlayers: [],
     loserPlayerId: null,
     passedPlayerIds: [],
+    exclusiveLockReleased: false,
     cheatAttemptsRemaining: initialAttempts,
     randSeed: 0,
     rngState: 1,

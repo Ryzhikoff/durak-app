@@ -125,6 +125,21 @@ export interface GameState {
    */
   passedPlayerIds: PlayerId[];
   /**
+   * `exclusiveThrowIn` bookkeeping: becomes true the first time the current
+   * bout's PRIMARY attacker (the seat at `currentAttackerIndex`) says "бито"
+   * or "пусть берёт". Once released, it stays released for the remainder of
+   * the bout — even after subsequent throw-ins reset `passedPlayerIds` (which
+   * happens on every new card hitting the table).
+   *
+   * Reset to `false` on bout closure (settle / take), on `translate` (the
+   * ex-defender becomes the new primary and the lock re-engages for them),
+   * and at game creation.
+   *
+   * Only meaningful when `settings.exclusiveThrowIn === true`; with the
+   * setting off the field stays `false` and is never read.
+   */
+  exclusiveLockReleased: boolean;
+  /**
    * Remaining cheat-notice attempts per player for the current bout. Resets
    * to `settings.cheatAttempts` at the start of every bout.
    */
@@ -248,6 +263,8 @@ export interface PlayerGameView {
   currentDefenderId: PlayerId;
   boutNumber: number;
   passedPlayerIds: PlayerId[];
+  /** Mirror of {@link GameState.exclusiveLockReleased} for client gating. */
+  exclusiveLockReleased: boolean;
   cheatAttemptsRemaining: number;
   loserPlayerId: PlayerId | null;
   finishedPlayers: PlayerId[];

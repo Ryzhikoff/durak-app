@@ -85,8 +85,22 @@ export function isExclusiveThrowInLocked(state: ClientGameState, myUserId: strin
   const primaryId = state.currentAttackerId;
   if (!primaryId) return false;
   if (primaryId === myUserId) return false;
-  // Primary already pasted on this bout — lock released.
-  if (state.passedPlayerIds.includes(primaryId)) return false;
+  // Primary already pasted at some point during this bout — lock released
+  // for the rest of the bout. We can't rely on `passedPlayerIds.includes(...)`
+  // here: that list is wiped on every throw-in (and on take), so once another
+  // thrower piles in after the primary's "бито" the primary id would be gone
+  // and the UI would re-lock against everyone else. The server-side latch
+  // (`exclusiveLockReleased`) survives those resets — mirror it.
+  if (state.exclusiveLockReleased === true) return false;
+  // Fallback for snapshots from a server that pre-dates the latch field —
+  // best-effort check against `passedPlayerIds` so older replays / open
+  // sockets keep working until the redeploy catches up.
+  if (
+    state.exclusiveLockReleased === undefined &&
+    state.passedPlayerIds.includes(primaryId)
+  ) {
+    return false;
+  }
   const primary = state.players.find((p) => p.id === primaryId);
   if (!primary) return false;
   if (primary.isFinished) return false;

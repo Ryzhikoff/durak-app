@@ -105,6 +105,7 @@ export function createGame(input: CreateGameInput, deps: CreateGameDeps = {}): G
     finishedPlayers: [],
     loserPlayerId: null,
     passedPlayerIds: [],
+    exclusiveLockReleased: false,
     cheatAttemptsRemaining: initialAttempts,
     randSeed: input.seed,
     rngState: rng.getState(),

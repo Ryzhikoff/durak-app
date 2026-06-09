@@ -86,13 +86,23 @@ export class AllPlayersPolicy implements IAttackPolicy {
  *
  * Until the primary attacker (= `state.currentAttackerIndex` — translates
  * already rotate this index in the reducer) has either:
- *   - said "бито" (id present in `state.passedPlayerIds`), or
+ *   - said "бито" / "пусть берёт" for this bout (tracked via the
+ *     `state.exclusiveLockReleased` latch — see notes below), or
  *   - exited the game (`finishedPlayers`), or
  *   - run out of cards (empty hand)
  * every OTHER player's throw-in is rejected with `EXCLUSIVE_LOCK`.
  *
  * The primary attacker themselves is always evaluated by the underlying
  * policy — no self-blocking.
+ *
+ * Why we read `exclusiveLockReleased` instead of `passedPlayerIds`:
+ * every throw-in (and beat) resets `passedPlayerIds` to `[]` so the
+ * remaining throwers re-evaluate the new table. If we keyed the lock off
+ * `passedPlayerIds.includes(primary)`, the first non-primary throw after the
+ * primary's "бито" would silently re-engage the lock against everyone else —
+ * letting whoever threw most recently impose another lock on the table.
+ * The latch is set in `reducePass` exactly once per bout and cleared on bout
+ * closure / translate (see reducers.ts + transitions.ts).
  */
 export class ExclusiveThrowInPolicy implements IAttackPolicy {
   constructor(private readonly inner: IAttackPolicy) {}
@@ -105,17 +115,16 @@ export class ExclusiveThrowInPolicy implements IAttackPolicy {
     const innerCheck = this.inner.checkThrow(state, playerId);
     if (!innerCheck.ok) return innerCheck;
 
+    // Lock latched off for the rest of this bout — primary already pasted.
+    if (state.exclusiveLockReleased) return innerCheck;
+
     // Find the primary attacker — the seat currently flagged as attacker.
-    // `translate` rotates this index inside the reducer; `passedPlayerIds`
-    // is reset on translate too (see reducers.ts), so the lock re-engages
-    // for whoever holds the role.
+    // `translate` rotates this index inside the reducer.
     const primary = state.players[state.currentAttackerIndex];
     if (!primary) return innerCheck;
     if (primary.id === playerId) return innerCheck;
     // Primary attacker out of game — exclusivity gates nothing.
     if (state.finishedPlayers.includes(primary.id)) return innerCheck;
-    // Primary attacker already said "бито" for this bout — lock released.
-    if (state.passedPlayerIds.includes(primary.id)) return innerCheck;
     // Primary attacker has no cards left → can't throw anymore. Treat as
     // implicit pass: don't block the rest of the table.
     if (primary.hand.length === 0) return innerCheck;
