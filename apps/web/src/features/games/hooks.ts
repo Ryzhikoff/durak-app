@@ -65,6 +65,8 @@ import type {
   PauseVote,
   PlayerReactionPayload,
   PlayerTextReactionPayload,
+  TurnTimerEvent,
+  TurnTimerState,
 } from './types';
 
 export const GAMES_QUERY_KEY = 'games' as const;
@@ -158,6 +160,8 @@ export interface LiveGameQueryData {
   chatMessages: ChatMessage[];
   /** Phase 8 — current disconnect-pause state. Null when not paused. */
   pauseInfo: PauseInfo | null;
+  /** Phase 9 — current turn-timer snapshot. Null when no countdown is active. */
+  turnTimer: TurnTimerState | null;
 }
 
 const CHAT_BUFFER_LIMIT = 200;
@@ -245,22 +249,33 @@ export function useGameState(
   // currently active for this game.
   const snapshotPauseInfo =
     snapshot.data?.kind === 'live' ? (snapshot.data.pauseInfo ?? null) : null;
+  // Phase 9 — same idea for the turn-timer snapshot. Seeded from REST so the
+  // countdown renders immediately; WS `game:turn_timer` events take over the
+  // moment the subscription is live.
+  const snapshotTurnTimer =
+    snapshot.data?.kind === 'live' ? (snapshot.data.turnTimer ?? null) : null;
 
   // Seed the live cache from the snapshot.
   useEffect(() => {
     if (!id || !liveSnapshot || !enabled) return;
     qc.setQueryData<LiveGameQueryData>(GAME_ROOM_KEY(id), (prev) =>
       prev
-        ? { ...prev, state: liveSnapshot, pauseInfo: prev.pauseInfo ?? snapshotPauseInfo }
+        ? {
+            ...prev,
+            state: liveSnapshot,
+            pauseInfo: prev.pauseInfo ?? snapshotPauseInfo,
+            turnTimer: prev.turnTimer ?? snapshotTurnTimer,
+          }
         : {
             state: liveSnapshot,
             recentEvents: [],
             unseenEvents: [],
             chatMessages: [],
             pauseInfo: snapshotPauseInfo,
+            turnTimer: snapshotTurnTimer,
           },
     );
-  }, [id, liveSnapshot, snapshotPauseInfo, qc, enabled]);
+  }, [id, liveSnapshot, snapshotPauseInfo, snapshotTurnTimer, qc, enabled]);
 
   const live = useQuery<LiveGameQueryData | undefined>({
     queryKey: id ? GAME_ROOM_KEY(id) : [GAMES_QUERY_KEY, 'live', '__missing__'],
@@ -275,6 +290,7 @@ export function useGameState(
             unseenEvents: [],
             chatMessages: [],
             pauseInfo: snapshotPauseInfo,
+            turnTimer: snapshotTurnTimer,
           }
         : undefined,
   });
@@ -293,6 +309,7 @@ export function useGameState(
               unseenEvents: [],
               chatMessages: [],
               pauseInfo: null,
+              turnTimer: null,
             },
       );
     };
@@ -322,12 +339,20 @@ export function useGameState(
           // A game ending erases any pending pause overlay — the result modal
           // is now the source of truth.
           pauseInfo: null,
+          // Game-over also kills any in-flight turn-timer so the countdown
+          // doesn't keep ticking under the modal.
+          turnTimer: null,
         };
       });
       // Backend has just dropped `userInGame:<userId>`, so the "active game"
       // banner in AppShell needs to re-evaluate. Refetching /auth/me clears
       // the user's `currentGameId` without requiring an F5.
       void qc.invalidateQueries({ queryKey: ME_QUERY_KEY });
+    };
+    const onTurnTimer = ({ state: ttState }: TurnTimerEvent) => {
+      qc.setQueryData<LiveGameQueryData>(GAME_ROOM_KEY(id), (prev) =>
+        prev ? { ...prev, turnTimer: ttState ?? null } : prev,
+      );
     };
     const onPaused = (payload: GamePausedPayload) => {
       qc.setQueryData<LiveGameQueryData>(GAME_ROOM_KEY(id), (prev) => {
@@ -429,12 +454,13 @@ export function useGameState(
     socket.on(GAME_EVENTS.pauseVoteUpdate, onVoteUpdate);
     socket.on(GAME_EVENTS.pauseWaitExtended, onWaitExtended);
     socket.on(GAME_EVENTS.concedeCompleted, onConcedeCompleted);
+    socket.on(GAME_EVENTS.turnTimer, onTurnTimer);
 
     let cancelled = false;
     const trySubscribe = () => {
       if (cancelled) return;
       subscribeGame(id)
-        .then(({ state, recentEvents, chatHistory, pauseInfo }) => {
+        .then(({ state, recentEvents, chatHistory, pauseInfo, turnTimer }) => {
           qc.setQueryData<LiveGameQueryData>(GAME_ROOM_KEY(id), (prev) => ({
             state,
             recentEvents:
@@ -450,6 +476,9 @@ export function useGameState(
             // any stale local overlay (e.g. when we missed the resume event
             // during a network blip).
             pauseInfo: pauseInfo ?? null,
+            // Same idea for the turn-timer snapshot — the server-side
+            // deadline is the authoritative source on reconnect.
+            turnTimer: turnTimer ?? null,
           }));
           setSubscribeError(null);
         })
@@ -486,6 +515,7 @@ export function useGameState(
       socket.off(GAME_EVENTS.pauseVoteUpdate, onVoteUpdate);
       socket.off(GAME_EVENTS.pauseWaitExtended, onWaitExtended);
       socket.off(GAME_EVENTS.concedeCompleted, onConcedeCompleted);
+      socket.off(GAME_EVENTS.turnTimer, onTurnTimer);
       socket.off('connect', trySubscribe);
     };
   }, [id, qc, enabled]);
@@ -548,6 +578,7 @@ export type UseGameResult =
       acknowledgeEvents: (count: number) => void;
       subscribeError: { code: string; message: string } | null;
       pauseInfo: PauseInfo | null;
+      turnTimer: TurnTimerState | null;
     }
   | { kind: 'finished'; detail: GameDetail };
 
@@ -579,6 +610,7 @@ export function useGame(id: string | undefined): UseGameResult {
       acknowledgeEvents: live.acknowledgeEvents,
       subscribeError: live.subscribeError,
       pauseInfo: live.data.pauseInfo,
+      turnTimer: live.data.turnTimer,
     };
   }
   if (snapshot.isPending) {
@@ -760,6 +792,30 @@ export function usePauseVote(
   );
 
   return { pauseInfo, myVote, vote, isSubmitting };
+}
+
+/**
+ * Reactive read of the live turn-timer snapshot from the shared TanStack-Query
+ * cache. Returns the {@link TurnTimerState} (or `null` when no countdown is
+ * active). The hook does NOT manage its own subscription — `useGameState` is
+ * already pumping updates into the same cache key.
+ *
+ * Designed to be cheap enough to call from each renderer that wants to display
+ * a countdown (seat chip, hand badge, info strip). The downstream
+ * {@link TurnTimer} component re-renders every second from a local
+ * `setInterval`, so the parent only re-renders when the underlying snapshot
+ * changes (active player flipped, timer cleared, new deadline armed).
+ */
+export function useTurnTimer(gameId: string | undefined): TurnTimerState | null {
+  const live = useQuery<LiveGameQueryData | undefined>({
+    queryKey: gameId
+      ? GAME_ROOM_KEY(gameId)
+      : [GAMES_QUERY_KEY, 'live', '__turn_timer_missing__'],
+    queryFn: () => undefined,
+    enabled: !!gameId,
+    staleTime: Infinity,
+  });
+  return live.data?.turnTimer ?? null;
 }
 
 /** Per-seat live reaction state — what to render above each user's seat. */

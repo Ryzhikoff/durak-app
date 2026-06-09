@@ -227,6 +227,10 @@
     "yourTurn": "Ваш ход",
     "yourTurnAttack": "Ваш ход — нападайте",
     "yourTurnDefend": "Ваш ход — отбивайтесь",
+    "turnTimer": {
+      "label": "Время хода",
+      "expired": "Время вышло"
+    },
     "actions": {
       "take": "Беру",
       "pass": "Бито",

@@ -778,6 +778,14 @@ export const GAME_EVENTS = {
    * sender's seat (counterpart to `game:player_reaction` for emoji).
    */
   playerTextReaction: 'game:player_text_reaction',
+  /**
+   * Per-turn countdown broadcast. Fired whenever the server arms a new
+   * turn-timer (active player changed, or the same player must act again),
+   * cancels an existing one (game-over / setting turned off), or refreshes it
+   * after a manual action. Payload: {@link TurnTimerEvent}. The state is
+   * `null` when no timer is active for the game.
+   */
+  turnTimer: 'game:turn_timer',
 } as const;
 
 export type GameEventName = (typeof GAME_EVENTS)[keyof typeof GAME_EVENTS];
@@ -787,6 +795,37 @@ export interface GameOverPublicPayload {
   gameId: string;
   /** ISO 8601 timestamp of finalization. */
   finishedAt: string;
+}
+
+// ---------- Live games — per-turn countdown (Phase 9) ----------
+
+/**
+ * Per-turn countdown snapshot. Lives in Redis under `turn-timer:<gameId>` and
+ * is broadcast over `game:turn_timer` whenever it changes (armed, refreshed,
+ * cancelled).
+ *
+ * The server is authoritative — clients render a local countdown derived from
+ * `deadlineAt - now()` clamped to 0. When the value reaches 0 on the client
+ * the server is expected to fire the forced action (take / pass) and emit
+ * the next state shortly after; the UI should keep rendering "0" until then.
+ *
+ * `null` means no timer is active for this game (turnTimer setting off, game
+ * over, or status that doesn't expose a single eligible actor — e.g. the very
+ * first action of a brand-new bout where no attacks are on the table yet).
+ */
+export interface TurnTimerState {
+  /** The seat that currently owes an action (defender or primary attacker). */
+  activeUserId: string;
+  /** ISO 8601 — wall-clock deadline by which the action must happen. */
+  deadlineAt: string;
+  /** Original duration, ms — used as the denominator for progress bars. */
+  durationMs: number;
+}
+
+/** Payload of the `game:turn_timer` broadcast. */
+export interface TurnTimerEvent {
+  /** Null when the timer was cancelled / no longer applies. */
+  state: TurnTimerState | null;
 }
 
 // ---------- Live games — disconnect pause (Phase 8) ----------

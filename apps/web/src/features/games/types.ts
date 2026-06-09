@@ -17,6 +17,7 @@ import type {
   ChatReactionUpdate,
   LobbySettings,
   PauseInfo,
+  TurnTimerState,
 } from '@durak/shared-types';
 
 export type {
@@ -48,6 +49,8 @@ export type {
   PlayerReactionPayload,
   PlayerTextReactionPayload,
   TextReaction,
+  TurnTimerEvent,
+  TurnTimerState,
 } from '@durak/shared-types';
 
 /** Mirrors `apps/api/src/modules/games/game-redactor.ts:ClientGamePlayer`. */
@@ -107,6 +110,12 @@ export interface GameSubscribePayload {
   chatHistory: ChatMessage[];
   /** Phase 8 — current pause meta-state. Null when the game isn't paused. */
   pauseInfo: PauseInfo | null;
+  /**
+   * Phase 9 — current turn-timer snapshot, or `null` when no countdown is
+   * active for this game (setting off / status doesn't expose a single forced
+   * actor). Updated live via the `game:turn_timer` event.
+   */
+  turnTimer: TurnTimerState | null;
 }
 
 export interface GameChatMessageEvent {

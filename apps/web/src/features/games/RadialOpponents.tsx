@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import { PlayerChip } from './PlayerChip';
-import type { ClientGamePlayer } from './types';
+import type { ClientGamePlayer, TurnTimerState } from './types';
 
 interface RadialOpponentsProps {
   /**
@@ -17,6 +17,11 @@ interface RadialOpponentsProps {
   reactions: Record<string, { emoji: string; timestamp: string } | null>;
   /** Floating text-reaction map (per opponent id). Independent of `reactions`. */
   textReactions?: Record<string, { text: string; timestamp: string } | null>;
+  /**
+   * Live turn-timer snapshot (or null). Forwarded to every PlayerChip — the
+   * chip itself gates rendering against its own `player.id`.
+   */
+  turnTimer?: TurnTimerState | null;
 }
 
 /**
@@ -77,6 +82,7 @@ export function RadialOpponents({
   showCheatBadge,
   reactions,
   textReactions,
+  turnTimer,
 }: RadialOpponentsProps) {
   const count = opponents.length;
   if (count === 0) return null;
@@ -109,6 +115,7 @@ export function RadialOpponents({
               reaction={reactions[opponent.id] ?? null}
               textReaction={textReactions?.[opponent.id] ?? null}
               variant="seat"
+              turnTimer={turnTimer ?? null}
             />
           </div>
         );

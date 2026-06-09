@@ -27,11 +27,13 @@ import {
   type PlayerTextReactionPayload,
   type RematchCancelReason,
   type RematchSession,
+  type TurnTimerState,
 } from '@durak/shared-types';
 import { SESSION_COOKIE_NAME } from '../auth/auth.constants';
 import { SessionService } from '../auth/session.service';
 import { GamesService } from './games.service';
 import { GamesPauseService } from './games-pause.service';
+import { GamesTurnTimerService } from './games-turn-timer.service';
 import { RematchService } from './rematch.service';
 import { GameCommandWsDto } from './dto/game-command.dto';
 import {
@@ -84,6 +86,7 @@ export class GamesGateway
     private readonly games: GamesService,
     private readonly pause: GamesPauseService,
     private readonly rematch: RematchService,
+    private readonly turnTimer: GamesTurnTimerService,
   ) {}
 
   /**
@@ -102,6 +105,13 @@ export class GamesGateway
       playerReaction: (gameId, payload) => this.broadcastPlayerReaction(gameId, payload),
       playerTextReaction: (gameId, payload) =>
         this.broadcastPlayerTextReaction(gameId, payload),
+      turnTimerChanged: (gameId, state) => this.broadcastTurnTimer(gameId, state),
+    });
+    // The turn-timer service owns the in-memory setTimeout map; when one
+    // fires, route the forced action back through GamesService so the
+    // engine reducer + persistence path is identical to a manual command.
+    this.turnTimer.setExpiryBus({
+      onExpired: (gameId) => this.games.expireTurnTimer(gameId),
     });
     this.rematch.setEventBus({
       invited: (userIds, session) =>
@@ -121,6 +131,10 @@ export class GamesGateway
     // Same idea for rematch sessions: the TTL timers are in-memory, so on
     // boot we read every live `rematch:*` key and re-arm the countdown.
     void this.rematch.resumeTimers();
+    // And turn-timer countdowns. Each snapshot in `turn-timer:*` is rehydrated
+    // from its remaining `deadlineAt - now` so an api restart doesn't reset
+    // anyone's clock.
+    void this.turnTimer.resumeTimers();
   }
 
   /**
@@ -350,6 +364,7 @@ export class GamesGateway
       recentEvents: DomainEvent[];
       chatHistory: ChatMessage[];
       pauseInfo: PauseInfo | null;
+      turnTimer: TurnTimerState | null;
     }>
   > {
     return this.run(async () => {
@@ -405,7 +420,11 @@ export class GamesGateway
       const snapshot = redactForPlayer(state, isMember ? userId : SPECTATOR_VIEWER_ID, profiles);
       // Push initial state straight to this socket (matches the lobbies pattern).
       client.emit(GAME_EVENTS.state, { state: snapshot });
-      return { state: snapshot, recentEvents, chatHistory, pauseInfo };
+      // Read the live turn-timer snapshot so a freshly-subscribing client
+      // doesn't see a blank countdown until the next state mutation. Cheap —
+      // it's an HGETALL on a 3-field hash.
+      const turnTimer = await this.games.getTurnTimer(gameId).catch(() => null);
+      return { state: snapshot, recentEvents, chatHistory, pauseInfo, turnTimer };
     });
   }
 
@@ -809,6 +828,21 @@ export class GamesGateway
       this.server.to(gameRoom(gameId)).emit(GAME_EVENTS.playerTextReaction, payload);
     } catch (err) {
       this.logger.warn({ err, gameId }, 'failed to broadcast player text reaction');
+    }
+  }
+
+  /**
+   * Per-game turn-timer broadcast. Always fans out to the room so spectators
+   * see the same countdown as the active players. `null` means the timer is
+   * not currently active (setting off, game over, or a status with no single
+   * forced actor). The state event still drives the cache update; this is
+   * purely supplemental.
+   */
+  private broadcastTurnTimer(gameId: string, state: TurnTimerState | null): void {
+    try {
+      this.server.to(gameRoom(gameId)).emit(GAME_EVENTS.turnTimer, { state });
+    } catch (err) {
+      this.logger.warn({ err, gameId }, 'failed to broadcast turn timer');
     }
   }
 

@@ -4,7 +4,8 @@ import { Avatar } from '@/components/Avatar';
 import { CheatAttemptsBadge } from './OpponentSeat';
 import { ReactionBubble } from './ReactionBubble';
 import { OpponentCardStack } from './OpponentCardStack';
-import type { ClientGamePlayer } from './types';
+import { TurnTimer } from './TurnTimer';
+import type { ClientGamePlayer, TurnTimerState } from './types';
 
 interface PlayerChipProps {
   player: ClientGamePlayer;
@@ -28,6 +29,13 @@ interface PlayerChipProps {
    *    hand is visible at a glance.
    */
   variant?: 'row' | 'seat';
+  /**
+   * Live turn-timer snapshot. Rendered as a small countdown badge above the
+   * avatar — but ONLY when this chip's player is the active actor on the
+   * clock (`turnTimer.activeUserId === player.id`). The component is silent
+   * otherwise so non-active seats stay calm.
+   */
+  turnTimer?: TurnTimerState | null;
 }
 
 /**
@@ -44,8 +52,17 @@ export function PlayerChip({
   reaction,
   textReaction,
   variant = 'row',
+  turnTimer,
 }: PlayerChipProps) {
   const { t } = useTranslation();
+  // Render the countdown only when THIS chip's player is the one on the clock.
+  // Each seat reads the same global snapshot from `useTurnTimer`; the gating
+  // here ensures opponent seats stay calm while the actor's chip lights up.
+  const showTurnTimer =
+    turnTimer !== null &&
+    turnTimer !== undefined &&
+    turnTimer.activeUserId === player.id &&
+    !player.isFinished;
 
   const status: string | null = player.isFinished
     ? player.finishPlace != null
@@ -95,6 +112,14 @@ export function PlayerChip({
             text={textReaction.text}
             className="!-top-14"
           />
+        ) : null}
+        {showTurnTimer ? (
+          <span
+            className="absolute -top-1.5 right-1.5 z-20"
+            data-testid={`turn-timer-seat-${player.id}`}
+          >
+            <TurnTimer state={turnTimer ?? null} variant="mini" />
+          </span>
         ) : null}
 
         <div className="flex w-full items-center gap-2">
@@ -170,6 +195,14 @@ export function PlayerChip({
           text={textReaction.text}
           className="!-top-14"
         />
+      ) : null}
+      {showTurnTimer ? (
+        <span
+          className="absolute -top-1 -right-1 z-20"
+          data-testid={`turn-timer-row-${player.id}`}
+        >
+          <TurnTimer state={turnTimer ?? null} variant="mini" />
+        </span>
       ) : null}
 
       <Avatar

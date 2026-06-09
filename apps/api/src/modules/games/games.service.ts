@@ -20,6 +20,7 @@ import type {
   Lobby,
   PlayerReactionPayload,
   PlayerTextReactionPayload,
+  TurnTimerState,
 } from '@durak/shared-types';
 import {
   CHAT_HISTORY_LIMIT,
@@ -40,6 +41,7 @@ import {
 } from './game-redactor';
 import type { ActiveGamePlayer, ActiveGameSummary } from '@durak/shared-types';
 import { GamesPauseService } from './games-pause.service';
+import { GamesTurnTimerService, computeActiveUserId } from './games-turn-timer.service';
 import {
   collectMetrics,
   type MetricDelta,
@@ -239,6 +241,12 @@ interface GameEventBus {
    * the admin-managed list. Never persisted.
    */
   playerTextReaction(gameId: string, payload: PlayerTextReactionPayload): void;
+  /**
+   * Turn-timer state changed — gateway broadcasts the new snapshot (or `null`
+   * when the timer was cleared). Fired after every successful command, on
+   * game start, and on game-over.
+   */
+  turnTimerChanged(gameId: string, state: TurnTimerState | null): void;
 }
 
 const NOOP_BUS: GameEventBus = {
@@ -248,6 +256,7 @@ const NOOP_BUS: GameEventBus = {
   chatReaction: () => undefined,
   playerReaction: () => undefined,
   playerTextReaction: () => undefined,
+  turnTimerChanged: () => undefined,
 };
 
 function gameKey(id: string): string {
@@ -374,6 +383,7 @@ export class GamesService {
     private readonly prisma: PrismaService,
     private readonly textReactions: AdminTextReactionsService,
     private readonly pause?: GamesPauseService,
+    private readonly turnTimer?: GamesTurnTimerService,
   ) {}
 
   setEventBus(bus: GameEventBus): void {
@@ -451,6 +461,9 @@ export class GamesService {
       })),
     );
     await this.persistNew(state, profiles);
+    // Arm the turn-timer immediately if the lobby opted in. Fires off the
+    // first broadcast so clients see the countdown the moment the page loads.
+    await this.reconcileTurnTimer(state);
     return { gameId: id, state };
   }
 
@@ -473,6 +486,20 @@ export class GamesService {
     try {
       const raw = await this.redis.client.get(userInGameKey(userId));
       return raw ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Expose the current turn-timer snapshot (if any) so HTTP handlers can ship
+   * it alongside the live state in their initial response — same shape the WS
+   * `game:turn_timer` event broadcasts later.
+   */
+  async getTurnTimer(id: string): Promise<TurnTimerState | null> {
+    if (!this.turnTimer) return null;
+    try {
+      return await this.turnTimer.peek(id);
     } catch {
       return null;
     }
@@ -667,8 +694,80 @@ export class GamesService {
       } else {
         this.bus.gameUpdated(nextState, events);
       }
+      // After-the-fact: refresh the per-turn countdown. We do this AFTER the
+      // gameUpdated/gameEnded broadcast so the state event lands first and the
+      // client patches its cache before the timer event arrives — otherwise a
+      // client could momentarily see the new timer pinned to a stale active
+      // player. The reconcile itself is cheap (Redis HSET + setTimeout).
+      await this.reconcileTurnTimer(nextState);
       return { state: nextState, events };
     });
+  }
+
+  /**
+   * Forced action driven by the turn-timer expiry. The gateway's expiry bus
+   * calls this with the game id; we re-load the state, decide the right
+   * command for the current active player, and route it through the regular
+   * `applyGameCommand` pipeline so all the usual side effects (metrics,
+   * broadcast, finalize) fire.
+   *
+   * The command is the same one the user would have pressed:
+   *  - defender (`bout_defense` / `bout_take_pending`) → `take`.
+   *  - attacker on settle (`bout_settle`) → `pass` (== "бито").
+   *  - everything else is a no-op (status doesn't expose a single forced
+   *    actor — the timer should never have been armed there).
+   */
+  async expireTurnTimer(gameId: string): Promise<void> {
+    const state = await this.tryGet(gameId).catch(() => null);
+    if (!state) return;
+    if (state.status === 'game_over') return;
+    // Don't double-fire while the game is paused — the disconnect-pause has
+    // its own grace + vote machinery. We'll re-arm naturally on resume via
+    // the next state broadcast.
+    if (this.pause) {
+      const pauseInfo = await this.pause.get(gameId).catch(() => null);
+      if (pauseInfo) return;
+    }
+    const activeUserId = computeActiveUserId(state);
+    if (!activeUserId) return;
+    let command: GameCommand | null = null;
+    switch (state.status) {
+      case 'bout_defense':
+        command = { type: 'take', playerId: activeUserId };
+        break;
+      case 'bout_settle':
+      case 'bout_take_pending':
+        // The attacker is being asked to commit — auto-pass on their behalf.
+        command = { type: 'pass', playerId: activeUserId };
+        break;
+      default:
+        command = null;
+    }
+    if (!command) return;
+    try {
+      await this.applyGameCommand(gameId, activeUserId, command);
+    } catch (err) {
+      // Swallow command-level failures — the engine could reject in a tight
+      // race (e.g. the player just acted manually a few ms before the timer
+      // fired). We log and let the next state broadcast re-arm the clock.
+      this.logger.warn({ err, gameId, activeUserId }, 'expireTurnTimer: forced action failed');
+    }
+  }
+
+  /**
+   * Compute the next turn-timer snapshot from the given state and broadcast
+   * it. Idempotent: when the settings disable the timer (or the game is
+   * over) we still call the bus with `null` so any stale client overlay is
+   * cleared. The collaborator is optional so legacy spec wiring still works.
+   */
+  private async reconcileTurnTimer(state: GameState): Promise<void> {
+    if (!this.turnTimer) return;
+    try {
+      const snapshot = await this.turnTimer.reconcile(state);
+      this.bus.turnTimerChanged(state.id, snapshot);
+    } catch (err) {
+      this.logger.warn({ err, gameId: state.id }, 'reconcileTurnTimer failed');
+    }
   }
 
   // -------- pause concede (Phase 8) --------
@@ -731,6 +830,9 @@ export class GamesService {
         this.logger.error({ err, gameId }, 'concedeGame: finalization failed');
       }
       this.bus.gameEnded(finalState, []);
+      // Clear any in-flight turn-timer — concede means we'll never be asking
+      // anyone to act on this game again.
+      await this.reconcileTurnTimer(finalState);
       return finalState;
     });
   }

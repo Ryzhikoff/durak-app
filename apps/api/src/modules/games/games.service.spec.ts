@@ -259,6 +259,34 @@ async function makeServiceWithPause(
   return { svc, pause };
 }
 
+/**
+ * Helper for Phase 9 (turn timer) tests: injects both the pause and turn-timer
+ * collaborators on top of the regular service. The returned `turnTimer` is the
+ * concrete instance so the test can directly call `.peek()` / `.resumeTimers()`
+ * without going through the public service surface.
+ */
+async function makeServiceWithTurnTimer(
+  redis: FakeRedis,
+  prisma: unknown,
+): Promise<{
+  svc: GamesService;
+  pause: import('./games-pause.service').GamesPauseService;
+  turnTimer: import('./games-turn-timer.service').GamesTurnTimerService;
+}> {
+  const { GamesPauseService } = await import('./games-pause.service');
+  const { GamesTurnTimerService } = await import('./games-turn-timer.service');
+  const pause = new GamesPauseService({ client: redis } as unknown as never);
+  const turnTimer = new GamesTurnTimerService({ client: redis } as unknown as never);
+  const svc = new GamesService(
+    { client: redis } as unknown as never,
+    prisma as never,
+    textReactionsStub,
+    pause,
+    turnTimer,
+  );
+  return { svc, pause, turnTimer };
+}
+
 const USER_A: FakePrismaUser = {
   id: 'ua',
   nickname: 'Alice',
@@ -526,6 +554,7 @@ describe('GamesService.applyGameCommand (authorisation)', () => {
       chatReaction: () => undefined,
       playerReaction: () => undefined,
       playerTextReaction: () => undefined,
+      turnTimerChanged: () => undefined,
     });
     // Find any legal attack the engine accepts for the current attacker.
     const attacker = state.players[state.currentAttackerIndex];
@@ -621,6 +650,203 @@ describe('GamesService.applyGameCommand (authorisation)', () => {
   });
 });
 
+describe('GamesService turn timer', () => {
+  function lobbyWithTimer(seconds: number | null): Lobby {
+    return {
+      id: 'lobby-tt',
+      createdAt: new Date().toISOString(),
+      status: 'waiting',
+      settings: {
+        ...DEFAULT_LOBBY_SETTINGS,
+        maxPlayers: 2,
+        turnTimer: seconds,
+      },
+      players: [
+        { userId: 'ua', nickname: 'Alice', avatarUrl: '/u/a.png', isReady: true },
+        { userId: 'ub', nickname: 'Bob', avatarUrl: null, isReady: true },
+      ],
+      gameId: null,
+    };
+  }
+
+  it('does not arm a timer when settings.turnTimer === null', async () => {
+    const redis = new FakeRedis();
+    const { svc, turnTimer } = await makeServiceWithTurnTimer(
+      redis,
+      makePrismaStub({ ua: USER_A, ub: USER_B }),
+    );
+    const broadcasts: Array<{ gameId: string; state: import('@durak/shared-types').TurnTimerState | null }> = [];
+    svc.setEventBus({
+      gameUpdated: () => undefined,
+      gameEnded: () => undefined,
+      chatMessage: () => undefined,
+      chatReaction: () => undefined,
+      playerReaction: () => undefined,
+      playerTextReaction: () => undefined,
+      turnTimerChanged: (gameId, state) => broadcasts.push({ gameId, state }),
+    });
+    const { gameId } = await svc.createFromLobby(lobbyWithTimer(null));
+    // Initial reconcile after createFromLobby fires a single broadcast with
+    // null (no timer armed).
+    expect(broadcasts).toEqual([{ gameId, state: null }]);
+    expect(await turnTimer.peek(gameId)).toBeNull();
+    // After a real attack lands, status flips to bout_defense — but the
+    // setting is off, so still no timer.
+    const before = await svc.get(gameId);
+    const attacker = before.players[before.currentAttackerIndex];
+    await svc.applyGameCommand(gameId, attacker.id, {
+      type: 'attack',
+      playerId: attacker.id,
+      cardId: attacker.hand[0].id,
+    });
+    expect(await turnTimer.peek(gameId)).toBeNull();
+    expect(broadcasts.every((b) => b.state === null)).toBe(true);
+  });
+
+  it('arms a timer for the defender after an attack lands', async () => {
+    const redis = new FakeRedis();
+    const { svc, turnTimer } = await makeServiceWithTurnTimer(
+      redis,
+      makePrismaStub({ ua: USER_A, ub: USER_B }),
+    );
+    const broadcasts: Array<import('@durak/shared-types').TurnTimerState | null> = [];
+    svc.setEventBus({
+      gameUpdated: () => undefined,
+      gameEnded: () => undefined,
+      chatMessage: () => undefined,
+      chatReaction: () => undefined,
+      playerReaction: () => undefined,
+      playerTextReaction: () => undefined,
+      turnTimerChanged: (_gameId, state) => broadcasts.push(state),
+    });
+    const { gameId } = await svc.createFromLobby(lobbyWithTimer(60));
+    // Pre-attack: bout_attack + no attacks on the table → no timer armed.
+    expect(broadcasts[broadcasts.length - 1]).toBeNull();
+    const before = await svc.get(gameId);
+    const attacker = before.players[before.currentAttackerIndex];
+    const defender = before.players[before.currentDefenderIndex];
+    const result = await svc.applyGameCommand(gameId, attacker.id, {
+      type: 'attack',
+      playerId: attacker.id,
+      cardId: attacker.hand[0].id,
+    });
+    expect(result.state.status).toBe('bout_defense');
+    const snapshot = await turnTimer.peek(gameId);
+    expect(snapshot).not.toBeNull();
+    expect(snapshot?.activeUserId).toBe(defender.id);
+    expect(snapshot?.durationMs).toBe(60_000);
+    // Last broadcast matches the persisted snapshot.
+    const last = broadcasts[broadcasts.length - 1];
+    expect(last).not.toBeNull();
+    expect(last?.activeUserId).toBe(defender.id);
+  });
+
+  it('rearms the timer when the defender beats — same defender, fresh deadline', async () => {
+    const redis = new FakeRedis();
+    const { svc, turnTimer } = await makeServiceWithTurnTimer(
+      redis,
+      makePrismaStub({ ua: USER_A, ub: USER_B }),
+    );
+    const { gameId } = await svc.createFromLobby(lobbyWithTimer(30));
+    const state = await svc.get(gameId);
+    const attacker = state.players[state.currentAttackerIndex];
+    const defender = state.players[state.currentDefenderIndex];
+    // Find a card the defender can actually beat the chosen attack with.
+    const trumpSuit = state.trumpSuit;
+    let attackCard: import('@durak/game-engine').Card | null = null;
+    let beatCard: import('@durak/game-engine').Card | null = null;
+    outer: for (const ac of attacker.hand) {
+      for (const dc of defender.hand) {
+        // We want a non-joker attack we can beat (joker is auto-beat-anywhere).
+        if (ac.kind !== 'standard') continue;
+        if (dc.kind !== 'standard') continue;
+        const sameSuit = ac.suit === dc.suit && dc.rank > ac.rank;
+        const trumpOverNon = dc.suit === trumpSuit && ac.suit !== trumpSuit;
+        if (sameSuit || trumpOverNon) {
+          attackCard = ac;
+          beatCard = dc;
+          break outer;
+        }
+      }
+    }
+    expect(attackCard).not.toBeNull();
+    expect(beatCard).not.toBeNull();
+    await svc.applyGameCommand(gameId, attacker.id, {
+      type: 'attack',
+      playerId: attacker.id,
+      cardId: attackCard!.id,
+    });
+    const afterAttack = await turnTimer.peek(gameId);
+    expect(afterAttack?.activeUserId).toBe(defender.id);
+    const firstDeadline = afterAttack!.deadlineAt;
+    // Defender now beats. The status moves to bout_settle; the primary attacker
+    // is on the clock again (waiting for "бито"). The timer must therefore be
+    // re-armed with a fresh deadline for the attacker.
+    const stateAfterAttack = await svc.get(gameId);
+    const attackEntryId = stateAfterAttack.table.attacks[0].id;
+    // Slight wall-clock advance so the deadlines can be compared lexicographically.
+    await new Promise((r) => setTimeout(r, 5));
+    await svc.applyGameCommand(gameId, defender.id, {
+      type: 'beat',
+      playerId: defender.id,
+      attackEntryId,
+      defenseCardId: beatCard!.id,
+    });
+    const afterBeat = await turnTimer.peek(gameId);
+    expect(afterBeat).not.toBeNull();
+    expect(afterBeat?.activeUserId).toBe(attacker.id);
+    expect(afterBeat!.deadlineAt).not.toBe(firstDeadline);
+  });
+
+  it('expireTurnTimer makes the defender auto-take after timeout', async () => {
+    const redis = new FakeRedis();
+    const { svc, turnTimer } = await makeServiceWithTurnTimer(
+      redis,
+      makePrismaStub({ ua: USER_A, ub: USER_B }),
+    );
+    const { gameId } = await svc.createFromLobby(lobbyWithTimer(30));
+    const state = await svc.get(gameId);
+    const attacker = state.players[state.currentAttackerIndex];
+    const defender = state.players[state.currentDefenderIndex];
+    const initialDefenderHand = defender.hand.length;
+    await svc.applyGameCommand(gameId, attacker.id, {
+      type: 'attack',
+      playerId: attacker.id,
+      cardId: attacker.hand[0].id,
+    });
+    // Simulate timer expiry directly — the gateway would normally do this.
+    await svc.expireTurnTimer(gameId);
+    const afterExpire = await svc.get(gameId);
+    // The defender was asked to act, so we forced a `take`. After "take" the
+    // engine parks in `bout_take_pending` so throw-ins still have a window.
+    // The persisted state therefore moves out of `bout_defense`.
+    expect(afterExpire.status).not.toBe('bout_defense');
+    // The defender hasn't picked up cards yet (still in take_pending) but
+    // the bout is no longer in defense; the next active player is the
+    // attacker who must say "пусть берёт".
+    const newSnapshot = await turnTimer.peek(gameId);
+    if (afterExpire.status === 'bout_take_pending') {
+      expect(newSnapshot?.activeUserId).toBe(attacker.id);
+    }
+    void initialDefenderHand;
+  });
+
+  it('clears the timer once the game reaches game_over', async () => {
+    const redis = new FakeRedis();
+    const { svc, turnTimer } = await makeServiceWithTurnTimer(
+      redis,
+      makePrismaStub({ ua: USER_A, ub: USER_B }),
+    );
+    const { gameId, state } = await svc.createFromLobby(lobbyWithTimer(60));
+    // Synthesise a game-over by patching the persisted state and calling
+    // reconcile via concede. Easier than driving the engine to natural end.
+    const ended: GameState = { ...state, status: 'game_over', loserPlayerId: 'ub' };
+    await redis.set(`${GAME_KEY_PREFIX}${gameId}`, JSON.stringify(ended));
+    await svc.concedeGame(gameId, ['ub']);
+    expect(await turnTimer.peek(gameId)).toBeNull();
+  });
+});
+
 describe('GamesService chat', () => {
   let redis: FakeRedis;
   let svc: GamesService;
@@ -646,6 +872,7 @@ describe('GamesService chat', () => {
       chatReaction: (gid, update) => bus.reactions.push({ gameId: gid, ...update }),
       playerReaction: () => undefined,
       playerTextReaction: () => undefined,
+      turnTimerChanged: () => undefined,
     });
     ({ gameId } = await svc.createFromLobby(makeLobby()));
   });
@@ -1055,6 +1282,7 @@ describe('GamesService.concedeGame', () => {
       chatReaction: () => undefined,
       playerReaction: () => undefined,
       playerTextReaction: () => undefined,
+      turnTimerChanged: () => undefined,
     });
     const { gameId } = await svc.createFromLobby(makeLobby());
     await pause.markDisconnected(gameId, 'ub');

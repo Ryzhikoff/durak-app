@@ -63,6 +63,7 @@ import type {
   DomainEvent,
   GameCommand,
   PauseInfo,
+  TurnTimerState,
 } from './types';
 
 export function GamePage() {
@@ -107,6 +108,7 @@ export function GamePage() {
           onAcknowledgeEvents={game.acknowledgeEvents}
           subscribeError={game.subscribeError}
           pauseInfo={game.pauseInfo}
+          turnTimer={game.turnTimer}
         />
       );
   }
@@ -119,6 +121,7 @@ interface GameRoomProps {
   onAcknowledgeEvents: (count: number) => void;
   subscribeError: { code: string; message: string } | null;
   pauseInfo: PauseInfo | null;
+  turnTimer: TurnTimerState | null;
 }
 
 function GameRoom({
@@ -128,6 +131,7 @@ function GameRoom({
   onAcknowledgeEvents,
   subscribeError,
   pauseInfo,
+  turnTimer,
 }: GameRoomProps) {
   const { t } = useTranslation();
   const me = useAuthStore((s) => s.user);
@@ -825,6 +829,7 @@ function GameRoom({
                 showCheatBadge={cheatingOn && p.id !== myUserId}
                 reaction={reactionsHook.reactions[p.id] ?? null}
                 textReaction={textReactionsHook.textReactions[p.id] ?? null}
+                turnTimer={turnTimer}
               />
             ))}
           </div>
@@ -858,6 +863,7 @@ function GameRoom({
               showCheatBadge={cheatingOn}
               reactions={reactionsHook.reactions}
               textReactions={textReactionsHook.textReactions}
+              turnTimer={turnTimer}
             />
             {/* Desktop-only deck-stack — pinned to the right edge of the
                 felt-table arena, vertically centred against the table. (The
@@ -923,6 +929,11 @@ function GameRoom({
                   isAttacker={isAttacker}
                   isDefender={isDefender}
                   exclusiveLocked={exclusiveLocked}
+                  turnTimer={
+                    turnTimer && turnTimer.activeUserId === myUserId
+                      ? turnTimer
+                      : null
+                  }
                 />
               </div>
 

@@ -8,6 +8,7 @@ import type {
   RematchAcceptedResponse,
   RematchInitiatedResponse,
   SameCompositionResponse,
+  TurnTimerState,
 } from '@durak/shared-types';
 import type { ClientGameState } from './types';
 
@@ -33,7 +34,12 @@ export async function listActiveGames(): Promise<ActiveGamesResponse> {
  * else.
  */
 export type FetchGameResponse =
-  | { kind: 'live'; state: ClientGameState; pauseInfo: PauseInfo | null }
+  | {
+      kind: 'live';
+      state: ClientGameState;
+      pauseInfo: PauseInfo | null;
+      turnTimer: TurnTimerState | null;
+    }
   | { kind: 'finished'; detail: GameDetail };
 
 /**
@@ -51,10 +57,16 @@ export async function fetchGame(id: string): Promise<FetchGameResponse> {
   const res = await api.get<{
     state?: ClientGameState;
     pauseInfo?: PauseInfo | null;
+    turnTimer?: TurnTimerState | null;
     detail?: GameDetail;
   }>(`/games/${id}`);
   if (res.data.state)
-    return { kind: 'live', state: res.data.state, pauseInfo: res.data.pauseInfo ?? null };
+    return {
+      kind: 'live',
+      state: res.data.state,
+      pauseInfo: res.data.pauseInfo ?? null,
+      turnTimer: res.data.turnTimer ?? null,
+    };
   if (res.data.detail) return { kind: 'finished', detail: res.data.detail };
   throw new Error('GAME_RESPONSE_MALFORMED');
 }

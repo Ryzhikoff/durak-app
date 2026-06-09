@@ -5,8 +5,9 @@ import { CSS } from '@dnd-kit/utilities';
 import { useTranslation } from 'react-i18next';
 import { PlayingCard } from './PlayingCard';
 import { sortHand } from './handSort';
+import { TurnTimer } from './TurnTimer';
 import { useAuthStore } from '@/stores/auth.store';
-import type { Card, Suit } from './types';
+import type { Card, Suit, TurnTimerState } from './types';
 
 export const HAND_CARD_DRAG_ID_PREFIX = 'hand-card:';
 
@@ -38,6 +39,13 @@ interface PlayerHandProps {
    * take / beat, unaffected by the lock).
    */
   exclusiveLocked?: boolean;
+  /**
+   * Live turn-timer snapshot. The badge renders the countdown chip next to
+   * the «Ваш ход» pill when the viewer is the actor on the clock — the parent
+   * passes the snapshot from {@link useTurnTimer} so the chip stays in sync
+   * with the cache.
+   */
+  turnTimer?: TurnTimerState | null;
 }
 
 /**
@@ -124,6 +132,7 @@ export function PlayerHand({
   isAttacker = false,
   isDefender = false,
   exclusiveLocked = false,
+  turnTimer = null,
 }: PlayerHandProps) {
   const { t } = useTranslation();
   // Pull the viewer's sort preference from the auth store. Falls back to
@@ -200,11 +209,18 @@ export function PlayerHand({
       {isMyTurn ? (
         <>
           <span
-            className="pointer-events-none absolute -top-1 left-1/2 z-20 -translate-x-1/2 whitespace-nowrap rounded-full bg-emerald-500 px-3 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white shadow-lg xl:text-xs"
+            className="pointer-events-none absolute -top-1 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full bg-emerald-500 px-3 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white shadow-lg xl:text-xs"
             data-testid="your-turn-badge"
             data-turn-role={isAttacker ? 'attack' : 'defend'}
           >
             {yourTurnLabel}
+            {turnTimer ? (
+              <TurnTimer
+                state={turnTimer}
+                variant="chip"
+                testId="your-turn-timer"
+              />
+            ) : null}
           </span>
           <span
             aria-hidden

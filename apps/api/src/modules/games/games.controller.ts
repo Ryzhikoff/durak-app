@@ -5,6 +5,7 @@ import type {
   GameListResponse,
   PauseInfo,
   SameCompositionResponse,
+  TurnTimerState,
 } from '@durak/shared-types';
 import { AuthGuard } from '../auth/auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -67,7 +68,14 @@ export class GamesController {
   async get(
     @Param('id') id: string,
     @CurrentUser() session: SessionPayload,
-  ): Promise<{ state: ClientGameState; pauseInfo: PauseInfo | null } | { detail: GameDetail }> {
+  ): Promise<
+    | {
+        state: ClientGameState;
+        pauseInfo: PauseInfo | null;
+        turnTimer: TurnTimerState | null;
+      }
+    | { detail: GameDetail }
+  > {
     // Live branch first — the Redis lookup is cheap and the personalised
     // snapshot is what the in-game UI expects.
     const live = await this.games.tryGet(id);
@@ -86,21 +94,23 @@ export class GamesController {
           // subscribe ack. The two queries run in parallel — pauseInfo
           // failure is non-fatal (we fall back to null so the live state
           // still renders).
-          const [state, pauseInfo] = await Promise.all([
+          const [state, pauseInfo, turnTimer] = await Promise.all([
             this.games.getClientState(id, session.userId),
             this.pause.get(id).catch(() => null),
+            this.games.getTurnTimer(id).catch(() => null),
           ]);
-          return { state, pauseInfo };
+          return { state, pauseInfo, turnTimer };
         }
         // Non-participant on an active game: serve a spectator snapshot. No
         // hand is revealed for any player; pauseInfo is still attached so the
         // overlay renders if the game is currently paused.
-        const [spectatorState, pauseInfo] = await Promise.all([
+        const [spectatorState, pauseInfo, turnTimer] = await Promise.all([
           this.games.getSpectatorState(id),
           this.pause.get(id).catch(() => null),
+          this.games.getTurnTimer(id).catch(() => null),
         ]);
         if (spectatorState) {
-          return { state: spectatorState, pauseInfo };
+          return { state: spectatorState, pauseInfo, turnTimer };
         }
         // Fell through (raced into game_over between the two reads) — let the
         // history lookup below decide.
