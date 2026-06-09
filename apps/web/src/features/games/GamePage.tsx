@@ -892,7 +892,7 @@ function GameRoom({
               Spectators see neither (no hand, no reactions). */}
           {!isSpectator ? (
             <div
-              className="relative mx-auto flex w-fit max-w-full items-end gap-3"
+              className="relative flex w-full items-end justify-center gap-3"
               data-testid="player-zone"
               // The throw-card animation looks up the source seat for every
               // attacker via `[data-player-id="<id>"]`. The viewer themself
@@ -902,7 +902,7 @@ function GameRoom({
               // "no source seat → skip animation".
               data-player-id={myUserId || undefined}
             >
-              <div className="relative">
+              <div className="relative flex-1 min-w-0 max-w-3xl">
                 <div className="pointer-events-none absolute inset-x-0 -top-2 flex justify-center">
                   <ReactionBubble
                     key={myReaction?.timestamp ?? 'none'}
