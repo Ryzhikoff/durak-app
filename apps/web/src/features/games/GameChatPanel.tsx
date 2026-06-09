@@ -604,14 +604,22 @@ function ChatMessageGroup({
   return (
     <div
       className={
-        isMine ? 'flex flex-row-reverse items-end gap-2' : 'flex items-end gap-2'
+        isMine
+          ? 'flex w-full min-w-0 flex-row-reverse items-end gap-2'
+          : 'flex w-full min-w-0 items-end gap-2'
       }
       data-testid={`chat-group-${group.firstId}`}
     >
       {!isMine ? (
         <Avatar nickname={group.nickname} avatarUrl={group.avatarUrl} />
       ) : null}
-      <div className={isMine ? 'flex max-w-[80%] flex-col items-end gap-0.5' : 'flex max-w-[80%] flex-col items-start gap-0.5'}>
+      <div
+        className={
+          isMine
+            ? 'flex min-w-0 max-w-[80%] flex-col items-end gap-0.5'
+            : 'flex min-w-0 max-w-[80%] flex-col items-start gap-0.5'
+        }
+      >
         {!isMine ? (
           <span className="px-1 text-[11px] font-semibold text-textMuted">
             {group.nickname}
