@@ -834,12 +834,13 @@ function GameRoom({
               border. On mobile this is just the bare table card; opponents
               live in the players-row strip above.
 
-              `xl:pt-32` (instead of pt-20) reserves enough vertical room above
-              the felt that the top-centre opponent seat (positioned at 4–10%
-              of the arena height) stays clear of the InfoStrip sitting above
-              this block. Without the extra padding, a 120-tall PlayerChip
-              translated -50% Y could reach into the InfoStrip text. */}
-          <div className="relative w-full xl:px-16 xl:pt-32 xl:pb-6">
+              `xl:pt-20` reserves enough vertical room above the felt that the
+              top-centre opponent seat (positioned at 4–10% of the arena
+              height) stays clear of the InfoStrip sitting above this block.
+              Was xl:pt-32 — too generous on shorter desktop viewports
+              (1440×900 etc.) where the bottom of the player's hand was
+              spilling off-screen. */}
+          <div className="relative w-full xl:px-16 xl:pt-20 xl:pb-2">
             <GameTable
               attacks={state.table.attacks}
               currentDefenderId={state.currentDefenderId}

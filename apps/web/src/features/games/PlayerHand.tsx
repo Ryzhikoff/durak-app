@@ -187,7 +187,7 @@ export function PlayerHand({
         'relative w-full',
         // Add top padding when the badge is showing so it doesn't overlap the
         // top edge of the cards / the reaction bubble anchor.
-        isMyTurn ? 'pt-4 xl:pt-5' : '',
+        isMyTurn ? 'pt-3 xl:pt-3' : '',
         // Exclusive-throw-in lock: visually mute the whole hand so the
         // disabled drop state is unmistakable. We keep cards draggable so
         // the drop handler can surface the localised "wait for X" hint.
@@ -220,7 +220,7 @@ export function PlayerHand({
           // Overflow-hidden (not auto) — by construction the cards already fit
           // via computed overlap, so any tiny rounding spill should be clipped
           // rather than spawn a scrollbar.
-          'flex w-full items-end justify-center pb-1 pt-3 xl:pt-4 overflow-hidden',
+          'flex w-full items-end justify-center pb-1 pt-2 xl:pt-2 overflow-hidden',
         )}
         data-testid="player-hand"
         data-overlap={Math.round(overlap)}
