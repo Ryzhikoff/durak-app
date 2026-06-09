@@ -174,9 +174,22 @@ describe('DefaultFirstBoutLimit', () => {
     expect(new DefaultFirstBoutLimit().limit(game)).toBe(game.initialDefenderHandSize);
   });
 
-  it('falls back to 6 from bout 2 onwards', () => {
+  it('falls back to 6 once the first successful defense has happened', () => {
+    // Latch semantics: the cap is `firstBoutLimit` until `firstDefenseHappened`
+    // flips to `true` (i.e. at least one defender has beaten a bout). Until
+    // then the limit holds — even at bout 2+ if the earlier bouts were closed
+    // via `take` rather than a successful defense.
     const game = makeGame({ settings: { firstBoutLimit: 5 } });
-    expect(new DefaultFirstBoutLimit().limit({ ...game, boutNumber: 2 })).toBe(6);
+    // Latch still false at bout 2 — limit must still be 5.
+    expect(new DefaultFirstBoutLimit().limit({ ...game, boutNumber: 2 })).toBe(5);
+    // Latch set — limit relaxes to the standard 6.
+    expect(
+      new DefaultFirstBoutLimit().limit({
+        ...game,
+        boutNumber: 2,
+        firstDefenseHappened: true,
+      }),
+    ).toBe(6);
   });
 });
 

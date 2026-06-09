@@ -115,6 +115,15 @@ export interface GameState {
    * `defender_hand` first-bout limit and translate-validation in bout 1.
    */
   initialDefenderHandSize: number;
+  /**
+   * Latches the moment a bout closes with `outcome: 'beaten'`. The
+   * `firstBoutLimit` setting (5 / 6 / `defender_hand`) holds while this is
+   * `false`; once any defender has successfully beaten a bout it flips to
+   * `true` for the rest of the game and the normal `min(6, defender_hand)`
+   * cap kicks in. Bouts that close via `take` do NOT flip the latch — the
+   * limit stays in force until somebody actually defends.
+   */
+  firstDefenseHappened: boolean;
   /** Players that ran out of cards, in finish order. */
   finishedPlayers: PlayerId[];
   /** Only set in `game_over` (null = draw / nobody is loser). */

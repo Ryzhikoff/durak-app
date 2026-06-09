@@ -102,6 +102,7 @@ export function createGame(input: CreateGameInput, deps: CreateGameDeps = {}): G
     status: 'bout_attack',
     boutNumber: 1,
     initialDefenderHandSize: defender.hand.length,
+    firstDefenseHappened: false,
     finishedPlayers: [],
     loserPlayerId: null,
     passedPlayerIds: [],

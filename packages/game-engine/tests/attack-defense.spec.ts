@@ -1133,9 +1133,11 @@ describe('first bout limits', () => {
     if (!r6.ok) expect(r6.code).toBe('ATTACK_LIMIT_REACHED');
   });
 
-  it('limit=5 stays at 5 in bout 1; bout 2 onward switches to min(6, defenderHand)', () => {
-    // Construct a state at bout 2 directly — boutNumber > 1 routes through
-    // the DefaultFirstBoutLimit.fallthrough branch (= 6).
+  it('limit=5 stays at 5 in bout 1; once first-defense latch flips switches to min(6, defenderHand)', () => {
+    // Construct a state at bout 2 directly WITH the first-defense latch
+    // set — i.e. the prior bout closed via successful defense, so the cap is
+    // back to the standard min(6, defenderHand). Pure `boutNumber > 1` is no
+    // longer enough to relax the cap; the latch governs.
     const state = craftGame({
       players: [
         {
@@ -1158,6 +1160,7 @@ describe('first bout limits', () => {
       boutNumber: 2,
       // Defender (B) holds 4 cards => effective cap = min(6, 4) = 4.
       initialDefenderHandSize: 4,
+      firstDefenseHappened: true,
     });
     let s = state;
     // Four 6s should be accepted (limit becomes min(6, defenderHand=4) = 4).

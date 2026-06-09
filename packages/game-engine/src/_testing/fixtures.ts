@@ -59,6 +59,14 @@ export interface CraftedGameInput {
   settings?: Partial<LobbySettings>;
   boutNumber?: number;
   initialDefenderHandSize?: number;
+  /**
+   * Mirrors {@link GameState.firstDefenseHappened}. Defaults to `false` —
+   * matches a freshly created game where no defender has beaten a bout yet.
+   * Tests that craft a state at bout #2+ where the first-bout cap should NO
+   * LONGER apply must set this to `true` (e.g. when the prior bouts were
+   * cleared by successful defenses).
+   */
+  firstDefenseHappened?: boolean;
 }
 
 export function craftGame(input: CraftedGameInput): GameState {
@@ -91,6 +99,7 @@ export function craftGame(input: CraftedGameInput): GameState {
     status: 'bout_attack',
     boutNumber: input.boutNumber ?? 1,
     initialDefenderHandSize: input.initialDefenderHandSize ?? players[defenderIndex].hand.length,
+    firstDefenseHappened: input.firstDefenseHappened ?? false,
     finishedPlayers: [],
     loserPlayerId: null,
     passedPlayerIds: [],

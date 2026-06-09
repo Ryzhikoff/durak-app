@@ -274,7 +274,12 @@ function reduceBeat(
     if (state.settings.cheatingEnabled) {
       next = { ...next, status: 'bout_settle' };
     } else {
-      const { state: closed, events: closeEvents } = closeBoutBeaten(next);
+      // Latch the "first successful defense happened" flag BEFORE closing the
+      // bout so the new bout's cap calculation (first-bout-limit strategy)
+      // sees the updated value. closeBoutBeaten preserves the flag through
+      // startNewBout via `...state` spread.
+      const beforeClose: GameState = { ...next, firstDefenseHappened: true };
+      const { state: closed, events: closeEvents } = closeBoutBeaten(beforeClose);
       events.push({ type: 'BoutEnded', outcome: 'beaten', boutNumber: state.boutNumber });
       events.push(...closeEvents);
       next = closed;
@@ -487,7 +492,12 @@ function reducePass(
   const allPassed = eligible.every((p) => next.passedPlayerIds.includes(p.id));
   if (allPassed) {
     if (phase === 'bout_settle') {
-      const { state: closed, events: closeEvents } = closeBoutBeaten(next);
+      // First successful defense in the game — flip the latch so subsequent
+      // bouts use the standard min(6, defender_hand) cap rather than the
+      // `firstBoutLimit` setting. We set this BEFORE closing so the cap
+      // strategy sees the new flag if any computation happens during close.
+      const beforeClose: GameState = { ...next, firstDefenseHappened: true };
+      const { state: closed, events: closeEvents } = closeBoutBeaten(beforeClose);
       events.push({ type: 'BoutEnded', outcome: 'beaten', boutNumber: state.boutNumber });
       events.push(...closeEvents);
       next = closed;
