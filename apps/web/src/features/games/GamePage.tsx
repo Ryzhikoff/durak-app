@@ -914,13 +914,17 @@ function GameRoom({
               data-player-id={myUserId || undefined}
             >
               <div className="relative flex-1 min-w-0 max-w-3xl">
-                <div className="pointer-events-none absolute inset-x-0 -top-2 flex justify-center">
+                {/* Viewer's emoji bubble. Anchored well above the «Ваш ход»
+                    badge that sits at -top-1 of the PlayerHand wrap, with a
+                    higher z-index so it stays in front of the badge instead
+                    of getting hidden behind it. */}
+                <div className="pointer-events-none absolute inset-x-0 -top-16 z-30 flex justify-center">
                   <ReactionBubble
                     key={myReaction?.timestamp ?? 'none'}
                     emoji={myReaction?.emoji ?? null}
                   />
                 </div>
-                <div className="pointer-events-none absolute inset-x-0 -top-2 flex justify-center">
+                <div className="pointer-events-none absolute inset-x-0 -top-16 z-30 flex justify-center">
                   <ReactionBubble
                     key={`text-${myTextReaction?.timestamp ?? 'none'}`}
                     text={myTextReaction?.text ?? null}
