@@ -7,6 +7,7 @@ import { Alert, Button, Card, Input, Modal, Spinner } from '@/components/ui';
 import { Avatar } from '@/components/Avatar';
 import { AvatarUploader } from '@/components/AvatarUploader';
 import { CardBack } from '@/components/CardBack';
+import { MyTextReactions } from './MyTextReactions';
 import { useAuthStore } from '@/stores/auth.store';
 import { getApiErrorCode, getApiErrorMessage } from '@/lib/api';
 import { CUSTOM_CARD_BACK_ID } from '@/lib/constants';
@@ -642,6 +643,8 @@ function OwnSettings({ profile }: { profile: PublicProfile }) {
           {t('profile.handSortMode.description')}
         </p>
       </Card>
+
+      <MyTextReactions />
 
       <Modal
         open={confirmDeleteOpen}

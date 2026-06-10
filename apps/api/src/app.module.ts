@@ -13,6 +13,7 @@ import { AdminUsersModule } from './modules/admin-users/admin-users.module';
 import { AdminRatingConfigModule } from './modules/admin-rating-config/admin-rating-config.module';
 import { AdminFaceCardsModule } from './modules/admin-face-cards/admin-face-cards.module';
 import { AdminTextReactionsModule } from './modules/admin-text-reactions/admin-text-reactions.module';
+import { UserTextReactionsModule } from './modules/me/text-reactions/user-text-reactions.module';
 import { MeModule } from './modules/me/me.module';
 import { CardBacksModule } from './modules/card-backs/card-backs.module';
 import { RatingModule } from './modules/rating/rating.module';
@@ -65,6 +66,7 @@ import { LobbiesModule } from './modules/lobbies/lobbies.module';
     AdminRatingConfigModule,
     AdminFaceCardsModule,
     AdminTextReactionsModule,
+    UserTextReactionsModule,
     MeModule,
     CardBacksModule,
     RatingModule,

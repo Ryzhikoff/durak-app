@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import '@/lib/i18n';
-import type { TextReaction } from '@durak/shared-types';
+import type { TextReaction, UserTextReactionDTO } from '@durak/shared-types';
 import type { ClientGameState } from './types';
 
 const sendPlayerTextReactionMock = vi.fn(
@@ -35,6 +35,19 @@ const fetchTextReactionsMock = vi.fn(async (): Promise<TextReaction[]> => [
 vi.mock('./textReactionsApi', () => ({
   TEXT_REACTIONS_QUERY_KEY: ['text-reactions'] as const,
   fetchTextReactions: () => fetchTextReactionsMock(),
+}));
+
+// Per-user customs — separate mock so each test can pin the list shape it
+// wants (empty / customs-only / both layers).
+const fetchMyTextReactionsMock = vi.fn(
+  async (): Promise<UserTextReactionDTO[]> => [],
+);
+
+vi.mock('./userTextReactionsApi', () => ({
+  ME_TEXT_REACTIONS_QUERY_KEY: ['me-text-reactions'] as const,
+  fetchMyTextReactions: () => fetchMyTextReactionsMock(),
+  createMyTextReaction: vi.fn(),
+  deleteMyTextReaction: vi.fn(),
 }));
 
 const mockState: ClientGameState = {
@@ -154,13 +167,66 @@ describe('GamePage text-reactions', () => {
     expect(sendPlayerTextReactionMock).toHaveBeenCalledWith('g1', 'r-1');
   });
 
-  it('shows the empty placeholder when the admin list is empty', async () => {
+  it('shows the empty placeholder when BOTH the admin globals and the user customs are empty', async () => {
     fetchTextReactionsMock.mockImplementationOnce(async () => []);
+    fetchMyTextReactionsMock.mockImplementationOnce(async () => []);
     renderWithProviders();
     const user = userEvent.setup();
     const trigger = await screen.findByTestId('open-text-reaction-picker');
     await user.click(trigger);
 
     await screen.findByTestId('text-reaction-empty');
+  });
+
+  it('renders BOTH sections with headers when admin globals and user customs are present', async () => {
+    fetchMyTextReactionsMock.mockImplementationOnce(async () => [
+      { id: 'my-1', text: 'Моя фраза', sortOrder: 0, createdAt: '2026-06-10T10:00:00.000Z' },
+    ]);
+    renderWithProviders();
+    const user = userEvent.setup();
+    const trigger = await screen.findByTestId('open-text-reaction-picker');
+    await user.click(trigger);
+
+    // Both section headers are present when both lists are non-empty.
+    await screen.findByTestId('text-reaction-section-global');
+    expect(screen.getByTestId('text-reaction-section-mine')).toBeInTheDocument();
+    // Custom phrase appears with its `mine` testid prefix.
+    expect(screen.getByTestId('text-reaction-mine-my-1').textContent).toContain(
+      'Моя фраза',
+    );
+  });
+
+  it('fires the WS mutation with the user-custom id when a custom phrase is picked', async () => {
+    sendPlayerTextReactionMock.mockClear();
+    fetchTextReactionsMock.mockImplementationOnce(async () => []);
+    fetchMyTextReactionsMock.mockImplementationOnce(async () => [
+      { id: 'my-1', text: 'Моя фраза', sortOrder: 0, createdAt: '2026-06-10T10:00:00.000Z' },
+    ]);
+    renderWithProviders();
+    const user = userEvent.setup();
+    const trigger = await screen.findByTestId('open-text-reaction-picker');
+    await user.click(trigger);
+
+    const button = await screen.findByTestId('text-reaction-mine-my-1');
+    await user.click(button);
+
+    // Server resolves the id regardless of source — the wire shape is the same.
+    expect(sendPlayerTextReactionMock).toHaveBeenCalledWith('g1', 'my-1');
+  });
+
+  it('hides section headers when only one of the two layers is populated', async () => {
+    // Only user customs, no admin globals → no section headers (single-section look).
+    fetchTextReactionsMock.mockImplementationOnce(async () => []);
+    fetchMyTextReactionsMock.mockImplementationOnce(async () => [
+      { id: 'my-1', text: 'Solo', sortOrder: 0, createdAt: '2026-06-10T10:00:00.000Z' },
+    ]);
+    renderWithProviders();
+    const user = userEvent.setup();
+    const trigger = await screen.findByTestId('open-text-reaction-picker');
+    await user.click(trigger);
+
+    await screen.findByTestId('text-reaction-mine-my-1');
+    expect(screen.queryByTestId('text-reaction-section-global')).toBeNull();
+    expect(screen.queryByTestId('text-reaction-section-mine')).toBeNull();
   });
 });

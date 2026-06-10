@@ -26,6 +26,7 @@ import {
   useGameCommand,
   useGameReactions,
   useGameTextReactions,
+  useMyTextReactions,
   usePauseVote,
   useTextReactions,
 } from './hooks';
@@ -279,6 +280,7 @@ function GameRoom({
   // on a separate per-user slot so an emoji + text bubble can coexist.
   const textReactionsHook = useGameTextReactions(gameId);
   const textReactionsList = useTextReactions();
+  const myTextReactionsList = useMyTextReactions();
   const [textReactionPickerOpen, setTextReactionPickerOpen] = useState(false);
   const textReactionPickerRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -1025,27 +1027,78 @@ function GameRoom({
                     aria-label={t('game.reactions.textPickerLabel')}
                     data-testid="text-reaction-picker"
                   >
-                    {textReactionsList.data && textReactionsList.data.length > 0 ? (
-                      textReactionsList.data.map((r) => (
-                        <button
-                          key={r.id}
-                          type="button"
-                          role="menuitem"
-                          onClick={() => void onPickTextReaction(r.id)}
-                          className="w-full rounded px-3 py-1.5 text-left text-sm leading-tight text-text transition-colors hover:bg-border md:text-base"
-                          data-testid={`text-reaction-${r.id}`}
-                        >
-                          {r.text}
-                        </button>
-                      ))
-                    ) : (
-                      <div
-                        className="px-3 py-2 text-center text-sm text-textMuted"
-                        data-testid="text-reaction-empty"
-                      >
-                        {t('game.reactions.textPickerEmpty')}
-                      </div>
-                    )}
+                    {(() => {
+                      // Merge admin-managed globals + the current user's customs.
+                      // Sections are labelled when BOTH layers are non-empty;
+                      // when only one is present we drop the headers so a single
+                      // section doesn't look weirdly framed.
+                      const globals = textReactionsList.data ?? [];
+                      const mine = myTextReactionsList.data ?? [];
+                      const bothEmpty = globals.length === 0 && mine.length === 0;
+                      const showHeaders = globals.length > 0 && mine.length > 0;
+                      if (bothEmpty) {
+                        return (
+                          <div
+                            className="px-3 py-2 text-center text-sm text-textMuted"
+                            data-testid="text-reaction-empty"
+                          >
+                            {t('game.reactions.textPickerEmpty')}
+                          </div>
+                        );
+                      }
+                      return (
+                        <>
+                          {globals.length > 0 ? (
+                            <>
+                              {showHeaders ? (
+                                <div
+                                  className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-textMuted"
+                                  data-testid="text-reaction-section-global"
+                                >
+                                  {t('game.reactions.textPickerGlobal')}
+                                </div>
+                              ) : null}
+                              {globals.map((r) => (
+                                <button
+                                  key={r.id}
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() => void onPickTextReaction(r.id)}
+                                  className="w-full rounded px-3 py-1.5 text-left text-sm leading-tight text-text transition-colors hover:bg-border md:text-base"
+                                  data-testid={`text-reaction-${r.id}`}
+                                >
+                                  {r.text}
+                                </button>
+                              ))}
+                            </>
+                          ) : null}
+                          {mine.length > 0 ? (
+                            <>
+                              {showHeaders ? (
+                                <div
+                                  className="mt-1 border-t border-border px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-textMuted"
+                                  data-testid="text-reaction-section-mine"
+                                >
+                                  {t('game.reactions.textPickerMine')}
+                                </div>
+                              ) : null}
+                              {mine.map((r) => (
+                                <button
+                                  key={r.id}
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() => void onPickTextReaction(r.id)}
+                                  className="w-full rounded px-3 py-1.5 text-left text-sm leading-tight text-text transition-colors hover:bg-border md:text-base"
+                                  data-testid={`text-reaction-mine-${r.id}`}
+                                >
+                                  {r.text}
+                                </button>
+                              ))}
+                            </>
+                          ) : null}
+                        </>
+                      );
+                    })()}
                   </div>
                 ) : null}
               </div>

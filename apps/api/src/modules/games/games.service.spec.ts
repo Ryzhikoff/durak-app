@@ -231,11 +231,21 @@ const textReactionsStub = {
   resolveEnabled: async () => null,
 } as unknown as import('../admin-text-reactions/admin-text-reactions.service').AdminTextReactionsService;
 
+/**
+ * Twin stub for the per-user custom text reactions. Same shape contract as the
+ * admin one — a no-resolve stub so constructor-only specs don't accidentally
+ * pull in DB plumbing.
+ */
+const userTextReactionsStub = {
+  resolveOwn: async () => null,
+} as unknown as import('../me/text-reactions/user-text-reactions.service').UserTextReactionsService;
+
 function makeService(redis: FakeRedis, prisma: unknown): GamesService {
   return new GamesService(
     { client: redis } as unknown as never,
     prisma as never,
     textReactionsStub,
+    userTextReactionsStub,
   );
 }
 
@@ -254,6 +264,7 @@ async function makeServiceWithPause(
     { client: redis } as unknown as never,
     prisma as never,
     textReactionsStub,
+    userTextReactionsStub,
     pause,
   );
   return { svc, pause };
@@ -281,6 +292,7 @@ async function makeServiceWithTurnTimer(
     { client: redis } as unknown as never,
     prisma as never,
     textReactionsStub,
+    userTextReactionsStub,
     pause,
     turnTimer,
   );
@@ -1304,5 +1316,172 @@ describe('GamesService.concedeGame', () => {
     const { gameId, state } = await svc.createFromLobby(makeLobby());
     const final = await svc.concedeGame(gameId, []);
     expect(final?.status).toBe(state.status);
+  });
+});
+
+/**
+ * Resolution-order spec for `recordTextReaction`:
+ *   1. admin globals (anyone may fire any global id),
+ *   2. per-user customs OWNED by sender (owner check is security-critical),
+ *   3. otherwise → TEXT_REACTION_NOT_FOUND.
+ *
+ * We hand-wire the two collaborator stubs so the test can simulate "global
+ * hit", "own-custom hit", "someone else's custom" (a malicious id-steal
+ * attempt) and "unknown id" without touching the real DB.
+ */
+describe('GamesService.recordTextReaction (resolution chain)', () => {
+  function makeBus() {
+    const broadcasts: Array<{ gameId: string; userId: string; text: string }> = [];
+    return {
+      broadcasts,
+      bus: {
+        gameUpdated: () => undefined,
+        gameEnded: () => undefined,
+        chatMessage: () => undefined,
+        chatReaction: () => undefined,
+        playerReaction: () => undefined,
+        playerTextReaction: (gid: string, payload: { userId: string; text: string }) =>
+          broadcasts.push({ gameId: gid, userId: payload.userId, text: payload.text }),
+        turnTimerChanged: () => undefined,
+      },
+    };
+  }
+
+  it('falls through to the user-custom store when admin globals miss, and broadcasts owner-resolved text', async () => {
+    const redis = new FakeRedis();
+    // Custom collaborators: admin always misses; user-custom is owned by 'ua'
+    // with text 'CUSTOM-OK'.
+    const adminMissAlways = {
+      resolveEnabled: async () => null,
+    } as unknown as import('../admin-text-reactions/admin-text-reactions.service').AdminTextReactionsService;
+    const userOwnedHit = {
+      resolveOwn: async (uid: string, id: string) => {
+        if (uid === 'ua' && id === 'mine-1') return { id, text: 'CUSTOM-OK' };
+        return null;
+      },
+    } as unknown as import('../me/text-reactions/user-text-reactions.service').UserTextReactionsService;
+    const svc = new GamesService(
+      { client: redis } as unknown as never,
+      makePrismaStub({ ua: USER_A, ub: USER_B }) as never,
+      adminMissAlways,
+      userOwnedHit,
+    );
+    const { broadcasts, bus } = makeBus();
+    svc.setEventBus(bus);
+    const { gameId } = await svc.createFromLobby(makeLobby());
+
+    const payload = await svc.recordTextReaction(gameId, 'ua', 'mine-1');
+    expect(payload.text).toBe('CUSTOM-OK');
+    expect(payload.userId).toBe('ua');
+    expect(broadcasts).toEqual([{ gameId, userId: 'ua', text: 'CUSTOM-OK' }]);
+  });
+
+  it('prefers admin global when both layers could match (avoids a redundant user-custom lookup if global hits first)', async () => {
+    const redis = new FakeRedis();
+    const adminHit = {
+      resolveEnabled: async (id: string) =>
+        id === 'g-1' ? { id, text: 'GLOBAL', sortOrder: 0 } : null,
+    } as unknown as import('../admin-text-reactions/admin-text-reactions.service').AdminTextReactionsService;
+    let userResolveCalls = 0;
+    const userObserver = {
+      resolveOwn: async () => {
+        userResolveCalls++;
+        return null;
+      },
+    } as unknown as import('../me/text-reactions/user-text-reactions.service').UserTextReactionsService;
+    const svc = new GamesService(
+      { client: redis } as unknown as never,
+      makePrismaStub({ ua: USER_A, ub: USER_B }) as never,
+      adminHit,
+      userObserver,
+    );
+    const { broadcasts, bus } = makeBus();
+    svc.setEventBus(bus);
+    const { gameId } = await svc.createFromLobby(makeLobby());
+
+    const payload = await svc.recordTextReaction(gameId, 'ua', 'g-1');
+    expect(payload.text).toBe('GLOBAL');
+    expect(userResolveCalls).toBe(0);
+    expect(broadcasts[0].text).toBe('GLOBAL');
+  });
+
+  it('refuses to broadcast another user\'s custom phrase (id-steal attempt)', async () => {
+    const redis = new FakeRedis();
+    // resolveOwn returns null when the userId arg does not match the row's owner,
+    // exactly as the real service does. Here we simulate that "stolen" path.
+    const adminMissAlways = {
+      resolveEnabled: async () => null,
+    } as unknown as import('../admin-text-reactions/admin-text-reactions.service').AdminTextReactionsService;
+    const userOwnerOnly = {
+      resolveOwn: async (uid: string, id: string) => {
+        // ub owns 'theirs-1'. ua trying to fire it ⇒ null.
+        if (uid === 'ub' && id === 'theirs-1') return { id, text: 'PRIVATE' };
+        return null;
+      },
+    } as unknown as import('../me/text-reactions/user-text-reactions.service').UserTextReactionsService;
+    const svc = new GamesService(
+      { client: redis } as unknown as never,
+      makePrismaStub({ ua: USER_A, ub: USER_B }) as never,
+      adminMissAlways,
+      userOwnerOnly,
+    );
+    const { broadcasts, bus } = makeBus();
+    svc.setEventBus(bus);
+    const { gameId } = await svc.createFromLobby(makeLobby());
+
+    await expect(
+      svc.recordTextReaction(gameId, 'ua', 'theirs-1'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(broadcasts).toEqual([]);
+  });
+
+  it('rejects unknown ids (both layers miss) with TEXT_REACTION_NOT_FOUND', async () => {
+    const redis = new FakeRedis();
+    const svc = new GamesService(
+      { client: redis } as unknown as never,
+      makePrismaStub({ ua: USER_A, ub: USER_B }) as never,
+      textReactionsStub,
+      userTextReactionsStub,
+    );
+    const { broadcasts, bus } = makeBus();
+    svc.setEventBus(bus);
+    const { gameId } = await svc.createFromLobby(makeLobby());
+
+    try {
+      await svc.recordTextReaction(gameId, 'ua', 'no-such');
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(NotFoundException);
+      const e = err as NotFoundException;
+      expect((e.getResponse() as { code: string }).code).toBe('TEXT_REACTION_NOT_FOUND');
+    }
+    expect(broadcasts).toEqual([]);
+  });
+
+  it('still enforces game-membership and rate-limit after a successful resolve', async () => {
+    const redis = new FakeRedis();
+    const adminAlwaysHit = {
+      resolveEnabled: async (id: string) => ({ id, text: 'HI', sortOrder: 0 }),
+    } as unknown as import('../admin-text-reactions/admin-text-reactions.service').AdminTextReactionsService;
+    const svc = new GamesService(
+      { client: redis } as unknown as never,
+      makePrismaStub({ ua: USER_A, ub: USER_B }) as never,
+      adminAlwaysHit,
+      userTextReactionsStub,
+    );
+    const { bus } = makeBus();
+    svc.setEventBus(bus);
+    const { gameId } = await svc.createFromLobby(makeLobby());
+
+    // Non-participant — surfaces as GAME_NOT_FOUND (no leak).
+    await expect(
+      svc.recordTextReaction(gameId, 'outsider', 'g-1'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    // First call succeeds; second within window is rate-limited.
+    await svc.recordTextReaction(gameId, 'ua', 'g-1');
+    await expect(svc.recordTextReaction(gameId, 'ua', 'g-1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'REACTION_RATE_LIMIT' }),
+    });
   });
 });

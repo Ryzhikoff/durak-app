@@ -21,6 +21,12 @@ import {
   TEXT_REACTIONS_QUERY_KEY,
   fetchTextReactions,
 } from './textReactionsApi';
+import {
+  ME_TEXT_REACTIONS_QUERY_KEY,
+  createMyTextReaction,
+  deleteMyTextReaction,
+  fetchMyTextReactions,
+} from './userTextReactionsApi';
 import { getApiErrorCode } from '@/lib/api';
 import {
   acceptRematch,
@@ -45,7 +51,12 @@ import {
   useGameSocket,
 } from './socket';
 import { ME_QUERY_KEY } from '@/features/auth/hooks';
-import type { GameDetail, GameListQuery } from '@durak/shared-types';
+import type {
+  CreateUserTextReactionRequest,
+  GameDetail,
+  GameListQuery,
+  UserTextReactionDTO,
+} from '@durak/shared-types';
 import type {
   ChatMessage,
   ClientGameState,
@@ -916,6 +927,53 @@ export function useTextReactions() {
     // may not yet be deployed — fail-fast so callers can render an empty UI
     // instead of a perpetual spinner.
     retry: false,
+  });
+}
+
+/**
+ * Owner-scoped picker list — per-user custom phrases the current user has
+ * saved. Used both by the in-game picker (merged with the admin globals) and
+ * by the profile page where the user manages the list.
+ *
+ * The cache key is independent of the global list so admin mutations don't
+ * invalidate the user list and vice-versa; the mutations below explicitly
+ * invalidate `ME_TEXT_REACTIONS_QUERY_KEY` so the picker re-fetches after a
+ * profile-side add / delete without the user opening it twice.
+ */
+export function useMyTextReactions() {
+  return useQuery<UserTextReactionDTO[]>({
+    queryKey: ME_TEXT_REACTIONS_QUERY_KEY,
+    queryFn: fetchMyTextReactions,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    retry: false,
+  });
+}
+
+/**
+ * Add a new custom phrase to the current user's list. The server enforces
+ * trim + length + per-user cap; callers should surface the error code
+ * (`USER_TEXT_REACTION_LIMIT_REACHED`, `TEXT_REACTION_EMPTY`,
+ * `TEXT_REACTION_TOO_LONG`) via i18n.
+ */
+export function useCreateMyTextReaction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateUserTextReactionRequest) => createMyTextReaction(body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ME_TEXT_REACTIONS_QUERY_KEY });
+    },
+  });
+}
+
+/** Remove a custom phrase. */
+export function useDeleteMyTextReaction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteMyTextReaction(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ME_TEXT_REACTIONS_QUERY_KEY });
+    },
   });
 }
 

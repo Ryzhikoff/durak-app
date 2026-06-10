@@ -30,6 +30,7 @@ import {
   PLAYER_REACTION_RATE_LIMIT_MS,
 } from '@durak/shared-types';
 import { AdminTextReactionsService } from '../admin-text-reactions/admin-text-reactions.service';
+import { UserTextReactionsService } from '../me/text-reactions/user-text-reactions.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { RedisService } from '../../infrastructure/redis/redis.service';
 import {
@@ -382,6 +383,7 @@ export class GamesService {
     private readonly redis: RedisService,
     private readonly prisma: PrismaService,
     private readonly textReactions: AdminTextReactionsService,
+    private readonly userTextReactions: UserTextReactionsService,
     private readonly pause?: GamesPauseService,
     private readonly turnTimer?: GamesTurnTimerService,
   ) {}
@@ -1040,11 +1042,19 @@ export class GamesService {
 
   /**
    * Record a transient in-game seat TEXT reaction. Validates id-against-admin-
-   * table + membership + rate-limit; broadcasts via the bus on success. The
-   * text is resolved server-side from the admin store so clients can never
-   * inject arbitrary phrases. Shares the same per-user rate-limit bucket as
-   * the emoji path — one bubble of either kind per
-   * {@link PLAYER_REACTION_RATE_LIMIT_MS} window.
+   * table OR per-user-custom-table + membership + rate-limit; broadcasts via
+   * the bus on success. The text is always resolved server-side so clients
+   * can never inject arbitrary phrases.
+   *
+   * Resolution order:
+   *  1. Admin-managed global, enabled-only. Anyone may fire any global id.
+   *  2. User custom, OWNED BY `userId` (sender). This owner check is
+   *     security-critical: it prevents a malicious sender from broadcasting
+   *     someone else's saved phrase by guessing their row id.
+   *  3. Otherwise → `TEXT_REACTION_NOT_FOUND`.
+   *
+   * Shares the same per-user rate-limit bucket as the emoji path — one bubble
+   * of either kind per {@link PLAYER_REACTION_RATE_LIMIT_MS} window.
    */
   async recordTextReaction(
     gameId: string,
@@ -1057,7 +1067,14 @@ export class GamesService {
         message: 'Reaction not found',
       });
     }
-    const resolved = await this.textReactions.resolveEnabled(textReactionId);
+    let resolved: { text: string } | null =
+      await this.textReactions.resolveEnabled(textReactionId);
+    if (!resolved) {
+      // Fall back to the sender's own custom phrases. resolveOwn() returns null
+      // for both "row does not exist" and "row belongs to another user", so
+      // the not-found error never leaks the existence of someone else's id.
+      resolved = await this.userTextReactions.resolveOwn(userId, textReactionId);
+    }
     if (!resolved) {
       throw new NotFoundException({
         code: 'TEXT_REACTION_NOT_FOUND',

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { AdminTextReactionsModule } from '../admin-text-reactions/admin-text-reactions.module';
+import { UserTextReactionsModule } from '../me/text-reactions/user-text-reactions.module';
 import { fisherYatesShuffle } from '../../common/shuffle';
 import { GamesController } from './games.controller';
 import { GamesGateway } from './games.gateway';
@@ -12,7 +13,7 @@ import { RematchController } from './rematch.controller';
 import { RematchService, REMATCH_SHUFFLE_TOKEN } from './rematch.service';
 
 @Module({
-  imports: [AuthModule, AdminTextReactionsModule],
+  imports: [AuthModule, AdminTextReactionsModule, UserTextReactionsModule],
   controllers: [GamesController, RematchController],
   providers: [
     GamesService,

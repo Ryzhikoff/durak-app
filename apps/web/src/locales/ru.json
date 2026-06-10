@@ -199,6 +199,15 @@
       "power": "По силе (сильные слева)",
       "suit": "По мастям (козыри + группы)",
       "description": "Влияет только на твою руку"
+    },
+    "myTextReactions": {
+      "title": "Мои текстовые реакции",
+      "subtitle": "До 20 фраз, до 30 символов каждая. В игре отображаются у вас в пикере, другие игроки увидят их когда вы отправите.",
+      "placeholder": "Введите фразу...",
+      "add": "Добавить",
+      "empty": "Пока пусто",
+      "limitReached": "Достигнут лимит 20 фраз",
+      "delete": "Удалить"
     }
   },
   "game": {
@@ -368,7 +377,9 @@
     "reactions": {
       "send": "Реакция",
       "textPickerLabel": "Текстовые реакции",
-      "textPickerEmpty": "Админ пока не добавил фразы"
+      "textPickerEmpty": "Админ пока не добавил фразы, и вы тоже",
+      "textPickerGlobal": "Общие",
+      "textPickerMine": "Мои"
     },
     "spectator": {
       "banner": "Вы наблюдаете за игрой",
@@ -757,6 +768,8 @@
     "TEXT_REACTION_NOT_FOUND": "Реакция недоступна",
     "TEXT_REACTION_TOO_LONG": "Текст слишком длинный (макс. 30 символов)",
     "TEXT_REACTION_EMPTY": "Текст не может быть пустым",
+    "USER_TEXT_REACTION_NOT_FOUND": "Реакция не найдена",
+    "USER_TEXT_REACTION_LIMIT_REACHED": "Достигнут лимит 20 фраз",
     "REMATCH_WINDOW_CLOSED": "Прошло слишком много времени с окончания игры",
     "REMATCH_NOT_FOUND": "Реванш недоступен — сессия уже закрыта",
     "REMATCH_EXPIRED": "Время реванша истекло",

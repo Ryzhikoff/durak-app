@@ -1082,6 +1082,47 @@ export interface AdminUpdateTextReactionRequest {
 /** Hard cap on the rendered text — enforced by both DB column and validator. */
 export const TEXT_REACTION_MAX_LENGTH = 30;
 
+// ---------- Per-user custom text reactions ----------
+
+/**
+ * Per-user custom text reaction picker entry. Owners see their customs alongside
+ * the admin-managed globals in the in-game picker; other players never see the
+ * raw list, but the resolved text is broadcast when the owner fires one.
+ *
+ * No `enabled` flag — user customs are always active for their owner; deletion
+ * is the only off-switch.
+ */
+export interface UserTextReactionDTO {
+  id: string;
+  text: string;
+  sortOrder: number;
+  createdAt: string;
+}
+
+/** Response of `GET /api/me/text-reactions`. */
+export interface UserTextReactionsResponse {
+  reactions: UserTextReactionDTO[];
+}
+
+/** Body of `POST /api/me/text-reactions`. */
+export interface CreateUserTextReactionRequest {
+  text: string;
+  sortOrder?: number;
+}
+
+/** Body of `PATCH /api/me/text-reactions/:id`. */
+export interface UpdateUserTextReactionRequest {
+  text?: string;
+  sortOrder?: number;
+}
+
+/**
+ * Hard cap on how many custom phrases a single user can store. Reached at the
+ * 21st add → server returns `USER_TEXT_REACTION_LIMIT_REACHED`. The picker UI
+ * disables the add button at this threshold.
+ */
+export const USER_TEXT_REACTION_MAX_PER_USER = 20;
+
 /**
  * Wire payload of the client-to-server `game:text_reaction` emit. The user
  * picked a row from the picker; the server resolves the id and broadcasts the

@@ -34,11 +34,12 @@ model User {
   updatedAt          DateTime @updatedAt
   disabledAt         DateTime?
 
-  sessions       Session[]
-  ratingHistory  RatingHistory[]
-  games          GameParticipant[]
-  gamesLost      Game[]            @relation("GameLoser")
-  faceCardUploads FaceCardAsset[]
+  sessions          Session[]
+  ratingHistory     RatingHistory[]
+  games             GameParticipant[]
+  gamesLost         Game[]            @relation("GameLoser")
+  faceCardUploads   FaceCardAsset[]
+  userTextReactions UserTextReaction[]
 
   @@index([disabledAt])
 }
@@ -190,6 +191,27 @@ model TextReaction {
   updatedAt DateTime @updatedAt
 
   @@index([enabled, sortOrder])
+}
+
+/// Per-user custom text reactions. Each user can add their own preset phrases
+/// (up to 20) on top of the admin-managed global list. Only the owner sees
+/// them in their picker, but when they fire one, the resolved text is
+/// broadcast to every player (same `game:player_text_reaction` wire shape).
+/// The server enforces ownership at send time so users can't impersonate
+/// someone else's custom phrase via the wire id.
+model UserTextReaction {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Same DB-level cap as admin-managed TextReaction.text — kept in sync
+  /// with TEXT_REACTION_MAX_LENGTH in shared-types.
+  text      String   @db.VarChar(30)
+  /// Display order in the owner's picker. Lower = earlier; ties broken by id.
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, sortOrder])
 }
 
 /// Singleton TrueSkill parameters editable from the admin UI. We use a
