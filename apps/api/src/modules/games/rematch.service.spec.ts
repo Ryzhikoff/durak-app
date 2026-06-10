@@ -12,6 +12,14 @@ import {
 import { RematchService, REMATCH_KEY_PREFIX } from './rematch.service';
 import type { GamesHistoryService } from './games-history.service';
 import type { GamesService } from './games.service';
+import type { ShuffleFn } from '../../common/shuffle';
+
+/**
+ * Identity shuffle — preserves order. Used so the bulk of existing assertions
+ * stay deterministic. Tests that specifically exercise the random-layout
+ * branch override this with their own deterministic stand-in.
+ */
+const identityShuffle: ShuffleFn = <T>(items: readonly T[]): T[] => items.slice();
 
 /**
  * In-memory Redis fake. We only implement the surface RematchService actually
@@ -129,6 +137,7 @@ function makeService(opts?: {
   detail?: GameDetail | null;
   detailById?: Record<string, GameDetail>;
   createFromComposition?: (input: unknown) => Promise<{ gameId: string }>;
+  shuffle?: ShuffleFn;
 }): {
   svc: RematchService;
   redis: FakeRedis;
@@ -152,10 +161,14 @@ function makeService(opts?: {
       opts?.createFromComposition ??
       vi.fn(async () => ({ gameId: `new-${Math.random().toString(36).slice(2, 8)}` })),
   } as unknown as Partial<GamesService>;
+  // Default to identity-shuffle so legacy assertions stay deterministic. The
+  // layoutOnRepeat tests below override this with their own stand-in.
+  const shuffle = opts?.shuffle ?? identityShuffle;
   const svc = new RematchService(
     { client: redis } as unknown as never,
     games as unknown as GamesService,
     history as unknown as GamesHistoryService,
+    shuffle,
   );
   const bus = {
     invited: vi.fn(),
@@ -372,5 +385,64 @@ describe('RematchService.peek', () => {
     const session = await svc.peek('g-1');
     expect(session).not.toBeNull();
     expect((session as RematchSession).expectedUserIds).toEqual(['ua', 'ub', 'uc']);
+  });
+});
+
+describe('RematchService layoutOnRepeat', () => {
+  it('random: feeds the shuffled seat order into createFromComposition', async () => {
+    // Pin a deterministic "shuffle" (reverse) so we can assert the exact order
+    // that lands in createFromComposition without depending on the RNG.
+    // The `as unknown as ShuffleFn` cast is needed because `vi.fn` collapses
+    // the generic; the runtime behaviour is what we care about.
+    const shuffleSpy = vi.fn((items: readonly unknown[]) => items.slice().reverse());
+    const createFromComposition = vi.fn(async (_input: unknown) => ({
+      gameId: 'newg-rand',
+    }));
+    const detail = makeDetail({
+      settings: { ...DEFAULT_LOBBY_SETTINGS, layoutOnRepeat: 'random' },
+    });
+    const { svc } = makeService({
+      detail,
+      createFromComposition,
+      shuffle: shuffleSpy as unknown as ShuffleFn,
+    });
+
+    await svc.initiateOrAccept('ua', 'g-1');
+    await svc.accept('ub', 'g-1');
+    await svc.accept('uc', 'g-1');
+
+    expect(shuffleSpy).toHaveBeenCalledTimes(1);
+    expect(createFromComposition).toHaveBeenCalledTimes(1);
+    const callArg = createFromComposition.mock.calls[0][0] as {
+      players: Array<{ userId: string }>;
+    };
+    // Reverse of the source seat order ['ua','ub','uc'].
+    expect(callArg.players.map((p) => p.userId)).toEqual(['uc', 'ub', 'ua']);
+  });
+
+  it('preserve: keeps the source-game seat order and never calls shuffle', async () => {
+    const shuffleSpy = vi.fn((items: readonly unknown[]) => items.slice().reverse());
+    const createFromComposition = vi.fn(async (_input: unknown) => ({
+      gameId: 'newg-keep',
+    }));
+    const detail = makeDetail({
+      settings: { ...DEFAULT_LOBBY_SETTINGS, layoutOnRepeat: 'preserve' },
+    });
+    const { svc } = makeService({
+      detail,
+      createFromComposition,
+      shuffle: shuffleSpy as unknown as ShuffleFn,
+    });
+
+    await svc.initiateOrAccept('ua', 'g-1');
+    await svc.accept('ub', 'g-1');
+    await svc.accept('uc', 'g-1');
+
+    expect(shuffleSpy).not.toHaveBeenCalled();
+    expect(createFromComposition).toHaveBeenCalledTimes(1);
+    const callArg = createFromComposition.mock.calls[0][0] as {
+      players: Array<{ userId: string }>;
+    };
+    expect(callArg.players.map((p) => p.userId)).toEqual(['ua', 'ub', 'uc']);
   });
 });

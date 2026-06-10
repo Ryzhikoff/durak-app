@@ -3,9 +3,11 @@ import {
   BadRequestException,
   ForbiddenException,
   GoneException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
   REMATCH_SESSION_TTL_SECONDS,
@@ -15,8 +17,16 @@ import {
   type RematchSession,
 } from '@durak/shared-types';
 import { RedisService } from '../../infrastructure/redis/redis.service';
+import { fisherYatesShuffle, type ShuffleFn } from '../../common/shuffle';
 import { GamesService } from './games.service';
 import { GamesHistoryService } from './games-history.service';
+
+/**
+ * DI token for the shuffle function used when `layoutOnRepeat === 'random'`.
+ * Defaulted to {@link fisherYatesShuffle} in the module wiring; spec files
+ * inject an identity or deterministic stand-in so assertions stay stable.
+ */
+export const REMATCH_SHUFFLE_TOKEN = Symbol('REMATCH_SHUFFLE');
 
 /** Redis key prefix for live rematch sessions. */
 export const REMATCH_KEY_PREFIX = 'rematch:';
@@ -101,11 +111,22 @@ export class RematchService {
   /** In-memory expiry timers, keyed by sourceGameId. */
   private readonly expiryTimers = new Map<string, NodeJS.Timeout>();
 
+  /**
+   * Shuffle function used when `layoutOnRepeat === 'random'`. Resolved via the
+   * Nest container with {@link REMATCH_SHUFFLE_TOKEN}; falls back to the
+   * crypto-strong {@link fisherYatesShuffle} when nothing is bound (which is
+   * also the default in production wiring — see games.module.ts).
+   */
+  private readonly shuffle: ShuffleFn;
+
   constructor(
     private readonly redis: RedisService,
     private readonly games: GamesService,
     private readonly history: GamesHistoryService,
-  ) {}
+    @Optional() @Inject(REMATCH_SHUFFLE_TOKEN) shuffle?: ShuffleFn,
+  ) {
+    this.shuffle = shuffle ?? fisherYatesShuffle;
+  }
 
   setEventBus(bus: RematchEventBus): void {
     this.bus = bus;
@@ -319,9 +340,17 @@ export class RematchService {
       finalSession = session;
       if (session.accepted.length === session.expectedUserIds.length) {
         // Full quorum — spawn the game.
-        const seats = session.composition
+        const seatsOrdered = session.composition
           .map((uid) => session.participants.find((p) => p.userId === uid))
           .filter((p): p is RematchPublicUser => !!p);
+        // Honour the `layoutOnRepeat` lobby setting. 'random' uses a
+        // crypto-strong Fisher–Yates shuffle so the rematch genuinely
+        // re-seats players; 'preserve' keeps the source-game seat order.
+        // The shuffle is non-mutating — see common/shuffle.ts.
+        const seats =
+          session.settings.layoutOnRepeat === 'random'
+            ? this.shuffle(seatsOrdered)
+            : seatsOrdered;
         if (seats.length === session.expectedUserIds.length) {
           // Determine previousLoserId from the source game so the engine can
           // honour the "loser starts" rule when configured.
