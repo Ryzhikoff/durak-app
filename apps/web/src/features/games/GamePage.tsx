@@ -814,7 +814,12 @@ function GameRoom({
           {/* Players row — single horizontal strip, clockwise from viewer.
               Hidden on xl+ where the radial-seat layout below takes over. */}
           <div
-            className="flex w-full items-stretch gap-1.5 overflow-x-auto pb-1 md:gap-2 md:overflow-x-visible md:flex-wrap md:justify-center xl:hidden"
+            // overflow-x: clip clips chips that overflow the viewport
+            // horizontally WITHOUT demoting overflow-y to auto — so emoji
+            // bubbles at -top-2 and text-reaction bubbles at -top-14 can
+            // float ABOVE the row instead of being eaten by the chip frame.
+            // (With the previous overflow-x-auto the spec forces y → auto too.)
+            className="flex w-full items-stretch gap-1.5 overflow-x-clip pb-1 md:gap-2 md:overflow-x-visible md:flex-wrap md:justify-center xl:hidden"
             role="list"
             aria-label={t('game.playersTitle')}
             data-testid="players-row"
