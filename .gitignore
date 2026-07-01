@@ -19,3 +19,6 @@ redis-data
 # Prisma
 apps/api/prisma/migrations/.migrate_lock
 
+
+# Локальные бэкапы/дампы БД — НЕ коммитить (персональные данные)
+backups
