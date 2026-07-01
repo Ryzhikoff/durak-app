@@ -12,7 +12,7 @@ coverage
 .vite
 .cache
 *.tsbuildinfo
-uploads
+/uploads
 postgres-data
 redis-data
 
